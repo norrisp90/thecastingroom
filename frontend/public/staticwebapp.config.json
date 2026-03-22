@@ -1,4 +1,11 @@
 {
+  "routes": [
+    { "route": "/worlds/*/actors/new", "rewrite": "/worlds/_/actors/new.html" },
+    { "route": "/worlds/*/actors/*", "rewrite": "/worlds/_/actors/_.html" },
+    { "route": "/worlds/*/auditions/new", "rewrite": "/worlds/_/auditions/new.html" },
+    { "route": "/worlds/*/auditions/*", "rewrite": "/worlds/_/auditions/_.html" },
+    { "route": "/worlds/*", "rewrite": "/worlds/_.html" }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": ["/_next/*", "/images/*", "/*.ico", "/*.svg", "/*.png", "/*.jpg"]
