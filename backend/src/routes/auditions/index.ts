@@ -11,7 +11,7 @@ const createAuditionSchema = z.object({
   actorId: z.string().uuid(),
   roleId: z.string().uuid().optional(),
   sceneSetup: z.string().max(5000).default(""),
-  model: z.string().default("gpt-4.1-nano"),
+  model: z.string().default("gpt-41-mini"),
 });
 
 const sendMessageSchema = z.object({

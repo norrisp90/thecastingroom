@@ -6,7 +6,7 @@ const createWorldSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).default(""),
   genre: z.string().max(100).default(""),
-  defaultModel: z.string().default("gpt-4.1-nano"),
+  defaultModel: z.string().default("gpt-41-mini"),
   toneGuidelines: z.string().max(2000).default(""),
 });
 

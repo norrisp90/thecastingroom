@@ -194,9 +194,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 // --- Static Web App (Frontend) ---
+// SWA Free tier not available in all regions; westeurope is closest supported to uksouth
 resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
   name: '${baseName}-web'
-  location: location
+  location: 'westeurope'
   sku: {
     name: 'Free'
     tier: 'Free'

@@ -1,6 +1,6 @@
 using 'main.bicep'
 
-param location = 'uksouth'
+param location = 'swedencentral'
 param baseName = 'castingroom'
 param azureOpenAiEndpoint = ''
 param azureOpenAiApiKey = ''

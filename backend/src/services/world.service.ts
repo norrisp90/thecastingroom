@@ -16,7 +16,7 @@ export class WorldService {
       name: data.name,
       description: data.description,
       genre: data.genre || "",
-      defaultModel: data.defaultModel || "gpt-4.1-nano",
+      defaultModel: data.defaultModel || "gpt-41-mini",
       toneGuidelines: data.toneGuidelines || "",
       createdBy: userId,
       createdAt: now,
