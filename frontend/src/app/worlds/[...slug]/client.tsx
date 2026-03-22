@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,17 +18,31 @@ import { authFetch, getUser, logout } from "@/lib/auth";
    ─────────────────────────────────────────── */
 
 export default function WorldRouterClient() {
-  const params = useParams();
-  const slug = params.slug as string[];
+  // In static export + SWA rewrite, useParams() returns the build-time placeholder
+  // ("_"), not the actual URL. Parse the real slug from window.location.pathname.
+  const [slug, setSlug] = useState<string[]>([]);
 
-  // slug examples:
-  //  ["abc123"]                          → WorldDetail
-  //  ["abc123","actors","new"]           → NewActor
-  //  ["abc123","actors","def456"]        → ActorDetail
-  //  ["abc123","auditions","new"]        → NewAudition
-  //  ["abc123","auditions","ghi789"]     → AuditionChat
+  useEffect(() => {
+    const segments = window.location.pathname
+      .replace(/^\/worlds\//, "")
+      .split("/")
+      .filter(Boolean);
+    setSlug(segments);
+  }, []);
 
   const worldId = slug[0];
+
+  // Still parsing the URL
+  if (slug.length === 0) {
+    return (
+      <main className="min-h-screen">
+        <Header />
+        <div className="container py-8 text-center">
+          <p className="text-muted-foreground">Loading…</p>
+        </div>
+      </main>
+    );
+  }
 
   if (slug.length === 1) {
     return <WorldDetail worldId={worldId} />;
