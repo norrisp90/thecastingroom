@@ -9,14 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { apiFetch } from "@/lib/api";
-
-interface UserInfo {
-  id: string;
-  email: string;
-  displayName: string;
-  role: string;
-}
+import { authFetch, getUser, getToken, logout } from "@/lib/auth";
 
 interface World {
   id: string;
@@ -26,72 +19,32 @@ interface World {
 }
 
 export default function DashboardPage() {
-  const [user, setUser] = useState<UserInfo | null>(null);
   const [worlds, setWorlds] = useState<World[]>([]);
   const [loading, setLoading] = useState(true);
   const [coldStart, setColdStart] = useState(false);
+  const [user, setUser] = useState<ReturnType<typeof getUser>>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("accessToken");
-    if (!token) {
+    setUser(getUser());
+
+    if (!getToken()) {
       window.location.href = "/login";
       return;
     }
 
-    // Decode user from stored data
-    const stored = localStorage.getItem("user");
-    if (stored) {
-      try {
-        setUser(JSON.parse(stored));
-      } catch {
-        // ignore parse errors
-      }
-    }
-
-    // Fetch worlds
-    apiFetch("/api/worlds", {
-      headers: { Authorization: `Bearer ${token}` },
-    }, { onColdStart: () => setColdStart(true) })
+    authFetch("/api/worlds", {}, { onColdStart: () => setColdStart(true) })
       .then(async (res) => {
-        if (res.status === 401) {
-          localStorage.removeItem("accessToken");
-          localStorage.removeItem("refreshToken");
-          localStorage.removeItem("user");
-          window.location.href = "/login";
-          return;
-        }
         if (res.ok) {
           const data = await res.json();
           setWorlds(data.worlds || data || []);
         }
       })
-      .catch(() => {
-        // network error — stay on page
-      })
+      .catch(() => {})
       .finally(() => {
         setLoading(false);
         setColdStart(false);
       });
   }, []);
-
-  function handleLogout() {
-    const refreshToken = localStorage.getItem("refreshToken");
-    const token = localStorage.getItem("accessToken");
-    if (refreshToken && token) {
-      apiFetch("/api/auth/logout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ refreshToken }),
-      }).catch(() => {});
-    }
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("user");
-    window.location.href = "/login";
-  }
 
   return (
     <main className="min-h-screen">
@@ -108,7 +61,7 @@ export default function DashboardPage() {
               )}
             </span>
           )}
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
+          <Button variant="ghost" size="sm" onClick={logout}>
             Sign Out
           </Button>
         </div>
