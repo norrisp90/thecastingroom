@@ -1,7 +1,9 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ActorService } from "../../services/actor.service.js";
+import { RoleService } from "../../services/role.service.js";
 import { WorldService } from "../../services/world.service.js";
+import { compileSystemPrompt } from "../../services/prompt.service.js";
 
 const identitySchema = z.object({
   fullName: z.string().default(""),
@@ -84,6 +86,7 @@ const createActorSchema = z.object({
 
 export async function actorRoutes(fastify: FastifyInstance) {
   const actorService = new ActorService(fastify.cosmos);
+  const roleService = new RoleService(fastify.cosmos);
   const worldService = new WorldService(fastify.cosmos);
 
   fastify.addHook("preHandler", fastify.authenticate);
@@ -158,6 +161,28 @@ export async function actorRoutes(fastify: FastifyInstance) {
     }
 
     return updated;
+  });
+
+  // Export compiled system prompt for actor
+  fastify.get<{ Params: { worldId: string; actorId: string }; Querystring: { roleId?: string; sceneSetup?: string } }>("/:worldId/actors/:actorId/export-prompt", async (request, reply) => {
+    const { worldId, actorId } = request.params;
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
+    if (!role) {
+      return reply.status(403).send({ error: "Access denied" });
+    }
+
+    const actor = await actorService.getById(worldId, actorId);
+    if (!actor) {
+      return reply.status(404).send({ error: "Actor not found" });
+    }
+
+    let loadedRole = undefined;
+    if (request.query.roleId) {
+      loadedRole = await roleService.getById(worldId, request.query.roleId) ?? undefined;
+    }
+
+    const prompt = compileSystemPrompt(actor, loadedRole, request.query.sceneSetup || undefined);
+    return { actorName: actor.name, roleName: loadedRole?.name, prompt };
   });
 
   // Delete actor

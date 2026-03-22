@@ -39,27 +39,11 @@ export class WorldService {
     return world;
   }
 
-  async listForUser(userId: string): Promise<World[]> {
-    const { resources: permissions } = await this.db.container("WorldPermissions").items
-      .query({
-        query: "SELECT c.worldId FROM c WHERE c.userId = @userId",
-        parameters: [{ name: "@userId", value: userId }],
-      })
-      .fetchAll();
-
-    if (permissions.length === 0) return [];
-
-    const worldIds = permissions.map((p) => p.worldId);
-    const placeholders = worldIds.map((_, i) => `@id${i}`).join(",");
-    const parameters = worldIds.map((id, i) => ({ name: `@id${i}`, value: id }));
-
+  // TEMPORARY: All authenticated users see all worlds (co-owner mode)
+  async listForUser(_userId: string): Promise<World[]> {
     const { resources: worlds } = await this.db.container("Worlds").items
-      .query({
-        query: `SELECT * FROM c WHERE c.id IN (${placeholders})`,
-        parameters,
-      })
+      .query({ query: "SELECT * FROM c ORDER BY c.createdAt DESC" })
       .fetchAll();
-
     return worlds as World[];
   }
 
@@ -98,22 +82,12 @@ export class WorldService {
     }
   }
 
-  async getUserRole(userId: string, worldId: string): Promise<WorldRole | null> {
-    const { resources } = await this.db.container("WorldPermissions").items
-      .query({
-        query: "SELECT c.role FROM c WHERE c.userId = @userId AND c.worldId = @worldId",
-        parameters: [
-          { name: "@userId", value: userId },
-          { name: "@worldId", value: worldId },
-        ],
-      })
-      .fetchAll();
-
-    if (resources.length === 0) return null;
-    return resources[0].role as WorldRole;
+  // TEMPORARY: All authenticated users are co-owners of all worlds
+  async getUserRole(_userId: string, _worldId: string): Promise<WorldRole | null> {
+    return "owner";
   }
 
-  async addPermission(worldId: string, targetUserId: string, role: WorldRole, invitedBy: string): Promise<void> {
+  async addPermission(worldId: string, targetUserId: string, role: WorldRole, invitedBy: string): Promise<WorldPermission> {
     const permission: WorldPermission = {
       id: crypto.randomUUID(),
       userId: targetUserId,
@@ -123,5 +97,46 @@ export class WorldService {
       grantedAt: new Date().toISOString(),
     };
     await this.db.container("WorldPermissions").items.create(permission);
+    return permission;
+  }
+
+  async listPermissions(worldId: string): Promise<WorldPermission[]> {
+    const { resources } = await this.db.container("WorldPermissions").items
+      .query({
+        query: "SELECT * FROM c WHERE c.worldId = @worldId",
+        parameters: [{ name: "@worldId", value: worldId }],
+      })
+      .fetchAll();
+    return resources as WorldPermission[];
+  }
+
+  async updatePermission(permissionId: string, userId: string, newRole: WorldRole): Promise<boolean> {
+    try {
+      await this.db.container("WorldPermissions").item(permissionId, userId).patch([
+        { op: "set", path: "/role", value: newRole },
+      ]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async removePermission(permissionId: string, userId: string): Promise<boolean> {
+    try {
+      await this.db.container("WorldPermissions").item(permissionId, userId).delete();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async findUserByEmail(email: string): Promise<{ id: string; email: string; displayName: string } | null> {
+    const { resources } = await this.db.container("Users").items
+      .query({
+        query: "SELECT c.id, c.email, c.displayName FROM c WHERE c.email = @email",
+        parameters: [{ name: "@email", value: email.toLowerCase().trim() }],
+      })
+      .fetchAll();
+    return resources.length > 0 ? resources[0] as { id: string; email: string; displayName: string } : null;
   }
 }

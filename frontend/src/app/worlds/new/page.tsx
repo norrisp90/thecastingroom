@@ -18,6 +18,7 @@ export default function NewWorldPage() {
   const [description, setDescription] = useState("");
   const [genre, setGenre] = useState("");
   const [toneGuidelines, setToneGuidelines] = useState("");
+  const [defaultModel, setDefaultModel] = useState("gpt-41-mini");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [coldStart, setColdStart] = useState(false);
@@ -37,6 +38,7 @@ export default function NewWorldPage() {
           description,
           genre,
           toneGuidelines,
+          defaultModel,
         }),
       }, { onColdStart: () => setColdStart(true) });
 
@@ -135,6 +137,22 @@ export default function NewWorldPage() {
                   onChange={(e) => setToneGuidelines(e.target.value)}
                   maxLength={2000}
                 />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="model" className="text-sm font-medium">
+                  Default Model
+                </label>
+                <select
+                  id="model"
+                  className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={defaultModel}
+                  onChange={(e) => setDefaultModel(e.target.value)}
+                >
+                  <option value="gpt-41-mini">GPT-4.1 Mini (default)</option>
+                  <option value="gpt-41">GPT-4.1</option>
+                  <option value="gpt-4o">GPT-4o</option>
+                  <option value="gpt-4o-mini">GPT-4o Mini</option>
+                </select>
               </div>
             </CardContent>
             <CardFooter className="flex gap-4">

@@ -1,12 +1,12 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import websocket from "@fastify/websocket";
 import { cosmosPlugin } from "./plugins/cosmos.js";
 import { authPlugin } from "./plugins/auth.js";
 import { authRoutes } from "./routes/auth/index.js";
 import { worldRoutes } from "./routes/worlds/index.js";
 import { actorRoutes } from "./routes/actors/index.js";
 import { auditionRoutes } from "./routes/auditions/index.js";
+import { roleRoutes } from "./routes/roles/index.js";
 
 const server = Fastify({
   logger: true,
@@ -19,7 +19,6 @@ async function start() {
     credentials: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
   });
-  await server.register(websocket);
   await server.register(cosmosPlugin);
   await server.register(authPlugin);
 
@@ -27,6 +26,7 @@ async function start() {
   await server.register(authRoutes, { prefix: "/api/auth" });
   await server.register(worldRoutes, { prefix: "/api/worlds" });
   await server.register(actorRoutes, { prefix: "/api/worlds" });
+  await server.register(roleRoutes, { prefix: "/api/worlds" });
   await server.register(auditionRoutes, { prefix: "/api/worlds" });
 
   // Health check
