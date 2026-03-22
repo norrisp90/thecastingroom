@@ -39,9 +39,10 @@ export default function LoginPage() {
         return;
       }
 
-      const { accessToken, refreshToken } = await res.json();
+      const { accessToken, refreshToken, user } = await res.json();
       localStorage.setItem("accessToken", accessToken);
       localStorage.setItem("refreshToken", refreshToken);
+      if (user) localStorage.setItem("user", JSON.stringify(user));
       window.location.href = "/dashboard";
     } catch {
       setError("Unable to connect to server. Please try again.");
