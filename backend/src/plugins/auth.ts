@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 export interface JwtPayload {
   userId: string;
   email: string;
+  role: string;
 }
 
 declare module "fastify" {

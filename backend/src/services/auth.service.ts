@@ -2,7 +2,7 @@ import { Database } from "@azure/cosmos";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
-import type { User, RefreshToken } from "../types/index.js";
+import type { User, UserRole, RefreshToken } from "../types/index.js";
 import type { JwtPayload } from "../plugins/auth.js";
 
 const BCRYPT_ROUNDS = 12;
@@ -35,11 +35,14 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const now = new Date().toISOString();
+    const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+    const role: UserRole = (adminEmail && email.toLowerCase().trim() === adminEmail) ? "admin" : "user";
     const user: User = {
       id: crypto.randomUUID(),
       email: email.toLowerCase().trim(),
       passwordHash,
       displayName: displayName.trim(),
+      role,
       createdAt: now,
       lastLogin: now,
     };
@@ -126,7 +129,7 @@ export class AuthService {
   }
 
   private async generateTokens(user: User) {
-    const payload: JwtPayload = { userId: user.id, email: user.email };
+    const payload: JwtPayload = { userId: user.id, email: user.email, role: user.role };
     const accessToken = jwt.sign(payload, this.jwtSecret, {
       expiresIn: ACCESS_TOKEN_EXPIRY,
     });
@@ -152,6 +155,7 @@ export class AuthService {
         id: user.id,
         email: user.email,
         displayName: user.displayName,
+        role: user.role,
       },
     };
   }

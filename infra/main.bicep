@@ -28,6 +28,12 @@ param jwtSecret string
 @description('Frontend URL for CORS')
 param frontendUrl string = ''
 
+@description('Invite code required for registration')
+param inviteCode string = 'hamnet'
+
+@description('Admin email address (gets admin role on registration)')
+param adminEmail string = 'paul@paulnorris.ie'
+
 
 // --- Log Analytics Workspace ---
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -185,6 +191,8 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'AZURE_OPENAI_API_KEY', secretRef: 'openai-key' }
             { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
             { name: 'FRONTEND_URL', value: frontendUrl }
+            { name: 'INVITE_CODE', value: inviteCode }
+            { name: 'ADMIN_EMAIL', value: adminEmail }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
           ]
         }

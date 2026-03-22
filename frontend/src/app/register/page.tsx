@@ -18,6 +18,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [coldStart, setColdStart] = useState(false);
@@ -43,7 +44,7 @@ export default function RegisterPage() {
       const res = await apiFetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, displayName }),
+        body: JSON.stringify({ email, password, displayName, inviteCode }),
       }, { onColdStart: () => setColdStart(true) });
 
       if (!res.ok) {
@@ -144,6 +145,19 @@ export default function RegisterPage() {
                 required
                 minLength={8}
                 autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="inviteCode" className="text-sm font-medium">
+                Invite Code
+              </label>
+              <Input
+                id="inviteCode"
+                type="text"
+                placeholder="Enter your invite code"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                required
               />
             </div>
           </CardContent>

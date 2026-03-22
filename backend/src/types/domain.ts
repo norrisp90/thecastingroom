@@ -4,11 +4,14 @@
 
 // --- User & Auth ---
 
+export type UserRole = "admin" | "user";
+
 export interface User {
   id: string;
   email: string;
   passwordHash: string;
   displayName: string;
+  role: UserRole;
   createdAt: string;
   lastLogin: string;
 }

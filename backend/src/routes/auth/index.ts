@@ -6,6 +6,7 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, "Password must be at least 8 characters"),
   displayName: z.string().min(1).max(100),
+  inviteCode: z.string().min(1, "Invite code is required"),
 });
 
 const loginSchema = z.object({
@@ -24,6 +25,11 @@ export async function authRoutes(fastify: FastifyInstance) {
     const result = registerSchema.safeParse(request.body);
     if (!result.success) {
       return reply.status(400).send({ error: result.error.flatten().fieldErrors });
+    }
+
+    const requiredCode = process.env.INVITE_CODE;
+    if (!requiredCode || result.data.inviteCode !== requiredCode) {
+      return reply.status(403).send({ error: "Invalid invite code" });
     }
 
     try {
