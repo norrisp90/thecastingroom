@@ -28,8 +28,6 @@ param jwtSecret string
 @description('Frontend URL for CORS')
 param frontendUrl string = ''
 
-@description('Azure Container Registry name (without .azurecr.io)')
-param acrName string = 'ca3e2fd943a5acr'
 
 // --- Log Analytics Workspace ---
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -154,12 +152,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: containerAppsEnv.id
     configuration: {
-      registries: [
-        {
-          server: '${acrName}.azurecr.io'
-          identity: 'system'
-        }
-      ]
       ingress: {
         external: true
         targetPort: 4000
