@@ -17,6 +17,7 @@ async function start() {
   await server.register(cors, {
     origin: (process.env.FRONTEND_URL || "http://localhost:3000").split(",").map(s => s.trim()),
     credentials: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
   });
   await server.register(websocket);
   await server.register(cosmosPlugin);
