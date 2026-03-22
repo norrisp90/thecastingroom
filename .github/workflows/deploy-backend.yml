@@ -30,5 +30,6 @@ jobs:
         with:
           appSourcePath: ./backend
           dockerfilePath: ./backend/Dockerfile
+          acrName: ${{ vars.ACR_NAME || 'ca3e2fd943a5acr' }}
           resourceGroup: ${{ env.RESOURCE_GROUP }}
           containerAppName: ${{ env.CONTAINER_APP_NAME }}
