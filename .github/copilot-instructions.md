@@ -21,6 +21,10 @@ AI character development platform. Next.js 15 frontend (static export) deployed 
 - **npm 11.x bug (npm/cli#8535)**: npm 11.3.0–11.9.0 corrupts `node_modules` (missing `package.json` files). Always use npm >= 11.10.1. If TypeScript or other packages fail to resolve, check npm version first.
 - **Node.js v24 + Next.js**: Next.js 15.x works with Node 24. Next.js 16.x does NOT (fails with `"id" argument must be of type string`).
 - **SWA deployment**: Deploy static exports with `npx @azure/static-web-apps-cli deploy ./out --deployment-token $token --env production`. The `out/` directory comes from `next build` with `output: "export"`.
+- **ACR registry in Bicep**: Do NOT add `registries` config to the Container App Bicep resource. The `azure/container-apps-deploy-action` handles ACR registry configuration automatically. Adding it causes a chicken-and-egg problem where the Container App can't provision because the managed identity doesn't have AcrPull yet.
+- **AcrPull role assignment**: The GitHub Actions service principal has `Contributor` role, which cannot create role assignments. AcrPull must be granted manually: `az role assignment create --assignee <MI-principalId> --role AcrPull --scope <ACR-resource-id>`.
+- **Container App stuck provisioning**: If `provisioningState` is stuck at `InProgress`, delete the Container App (`az containerapp delete`) and recreate via the Deploy Infrastructure workflow, then re-grant AcrPull and re-configure ACR registry.
+- **Backend workflow dockerfilePath**: The `dockerfilePath` in `azure/container-apps-deploy-action` is relative to `appSourcePath`, not the repo root. Use `./Dockerfile` (not `./backend/Dockerfile`) when `appSourcePath: ./backend`.
 
 ## Build & Deploy Commands
 
