@@ -33,3 +33,9 @@ yarn-error.log*
 
 # Docker
 docker-compose.override.yml
+
+# Temp/credential files
+*-creds.json
+*.ps1
+ca-current.json
+status.txt
