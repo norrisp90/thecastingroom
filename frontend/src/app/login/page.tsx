@@ -11,26 +11,27 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { apiFetch } from "@/lib/api";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [coldStart, setColdStart] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setColdStart(false);
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_URL}/api/auth/login`, {
+      const res = await apiFetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
-      });
+      }, { onColdStart: () => setColdStart(true) });
 
       if (!res.ok) {
         const data = await res.json();
@@ -43,9 +44,10 @@ export default function LoginPage() {
       localStorage.setItem("refreshToken", refreshToken);
       window.location.href = "/dashboard";
     } catch {
-      setError("Unable to connect to server");
+      setError("Unable to connect to server. Please try again.");
     } finally {
       setLoading(false);
+      setColdStart(false);
     }
   }
 
@@ -60,6 +62,11 @@ export default function LoginPage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
+            {coldStart && (
+              <p className="text-sm text-muted-foreground text-center animate-pulse">
+                Waking up the server… this may take a moment.
+              </p>
+            )}
             {error && (
               <p className="text-sm text-destructive text-center">{error}</p>
             )}
