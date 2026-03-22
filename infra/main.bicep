@@ -28,6 +28,9 @@ param jwtSecret string
 @description('Frontend URL for CORS')
 param frontendUrl string = ''
 
+@description('Azure Container Registry name (without .azurecr.io)')
+param acrName string = 'ca3e2fd943a5acr'
+
 // --- Log Analytics Workspace ---
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: '${baseName}-logs'
@@ -141,13 +144,27 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
+// --- Existing ACR ---
+resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
+  name: acrName
+}
+
 // --- Container App (Backend API) ---
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${baseName}-api'
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     managedEnvironmentId: containerAppsEnv.id
     configuration: {
+      registries: [
+        {
+          server: '${acrName}.azurecr.io'
+          identity: 'system'
+        }
+      ]
       ingress: {
         external: true
         targetPort: 4000
@@ -190,6 +207,18 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         maxReplicas: 1
       }
     }
+  }
+}
+
+// --- AcrPull role assignment for Container App managed identity ---
+var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d' // AcrPull built-in role
+resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(acr.id, containerApp.id, acrPullRoleId)
+  scope: acr
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalId: containerApp.identity.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
