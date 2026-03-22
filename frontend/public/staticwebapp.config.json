@@ -1,5 +1,6 @@
 {
   "routes": [
+    { "route": "/worlds/new", "rewrite": "/worlds/new.html" },
     { "route": "/worlds/*", "rewrite": "/worlds/_.html" }
   ],
   "navigationFallback": {
