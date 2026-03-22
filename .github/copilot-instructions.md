@@ -31,6 +31,7 @@ AI character development platform. Next.js 15 frontend (static export) deployed 
 - **Admin users vs. WorldPermissions**: System-level admins (`role: "admin"` in JWT) must bypass `WorldPermissions` checks. Every route handler that calls `getUserRole` should also check `request.user.role === "admin"` and grant owner-level access.
 - **CORS multi-origin**: `FRONTEND_URL` env var supports comma-separated origins. Backend splits on commas: `origin: FRONTEND_URL.split(",").map(s => s.trim())`. Set to `https://zealous-rock-090eeb003.2.azurestaticapps.net,http://localhost:3000` for both production + local.
 - **SWA rewrite + useParams() broken**: SWA rewrites `/worlds/*` to `/worlds/_.html`. Next.js `useParams()` returns the build-time placeholder `["_"]`, NOT the actual URL. **Solution**: parse `window.location.pathname` in a `useEffect` instead of using `useParams()`. This applies to ALL catch-all routes in static export deployed to SWA.
+- **@fastify/cors v11 methods default**: `@fastify/cors` v11 only returns `GET,HEAD,POST` in `Access-Control-Allow-Methods` by default, blocking PUT/PATCH/DELETE at the browser preflight stage. **Solution**: always set `methods: ["GET","HEAD","PUT","PATCH","POST","DELETE"]` explicitly in the CORS config.
 
 ## Build & Deploy Commands
 
