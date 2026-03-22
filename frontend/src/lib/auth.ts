@@ -44,25 +44,38 @@ export function logout() {
   window.location.href = "/login";
 }
 
+let refreshPromise: Promise<string | null> | null = null;
+
 async function refreshTokens(): Promise<string | null> {
-  const refreshToken = localStorage.getItem("refreshToken");
-  if (!refreshToken) return null;
+  // Deduplicate concurrent refresh attempts — all callers share one in-flight promise
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    const refreshToken = localStorage.getItem("refreshToken");
+    if (!refreshToken) return null;
+
+    try {
+      const res = await apiFetch("/api/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      localStorage.setItem("accessToken", data.accessToken);
+      localStorage.setItem("refreshToken", data.refreshToken);
+      if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
+      return data.accessToken;
+    } catch {
+      return null;
+    }
+  })();
 
   try {
-    const res = await apiFetch("/api/auth/refresh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    localStorage.setItem("accessToken", data.accessToken);
-    localStorage.setItem("refreshToken", data.refreshToken);
-    if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
-    return data.accessToken;
-  } catch {
-    return null;
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
   }
 }
 

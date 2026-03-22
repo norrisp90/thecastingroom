@@ -24,10 +24,17 @@ export async function auditionRoutes(fastify: FastifyInstance) {
 
   fastify.addHook("preHandler", fastify.authenticate);
 
+  // Helper to get effective role (admin bypass)
+  async function getEffectiveRole(userId: string, userRole: string, worldId: string) {
+    const role = await worldService.getUserRole(userId, worldId);
+    if (!role && userRole === "admin") return "owner";
+    return role;
+  }
+
   // Create audition session
   fastify.post<{ Params: { worldId: string } }>("/:worldId/auditions", async (request, reply) => {
     const { worldId } = request.params;
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role || role === "viewer") {
       return reply.status(403).send({ error: "Viewers cannot run auditions" });
     }
@@ -67,7 +74,7 @@ export async function auditionRoutes(fastify: FastifyInstance) {
   // List auditions in world
   fastify.get<{ Params: { worldId: string } }>("/:worldId/auditions", async (request, reply) => {
     const { worldId } = request.params;
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role) {
       return reply.status(403).send({ error: "Access denied" });
     }
@@ -85,7 +92,7 @@ export async function auditionRoutes(fastify: FastifyInstance) {
   // Get audition session
   fastify.get<{ Params: { worldId: string; sessionId: string } }>("/:worldId/auditions/:sessionId", async (request, reply) => {
     const { worldId, sessionId } = request.params;
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role) {
       return reply.status(403).send({ error: "Access denied" });
     }
@@ -104,7 +111,7 @@ export async function auditionRoutes(fastify: FastifyInstance) {
   // Send message in audition (non-streaming for MVP)
   fastify.post<{ Params: { worldId: string; sessionId: string } }>("/:worldId/auditions/:sessionId/message", async (request, reply) => {
     const { worldId, sessionId } = request.params;
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role || role === "viewer") {
       return reply.status(403).send({ error: "Viewers cannot send messages" });
     }

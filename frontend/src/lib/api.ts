@@ -21,18 +21,17 @@ export async function apiFetch(
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let coldStartTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        // Don't abort — just notify UI that it's slow (cold start likely)
+      coldStartTimer = setTimeout(() => {
         options?.onColdStart?.();
       }, COLD_START_TIMEOUT);
 
-      const res = await fetch(url, { ...init, signal: controller.signal });
-      clearTimeout(timeoutId);
+      const res = await fetch(url, init);
+      clearTimeout(coldStartTimer);
       return res;
     } catch (err) {
-      clearTimeout(0); // cleanup
+      if (coldStartTimer !== undefined) clearTimeout(coldStartTimer);
       lastError = err;
 
       if (attempt < MAX_RETRIES) {

@@ -44,7 +44,11 @@ export async function worldRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { worldId: string } }>("/:worldId", async (request, reply) => {
     const { worldId } = request.params;
 
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    // Admin users can access any world
+    let role = await worldService.getUserRole(request.user!.userId, worldId);
+    if (!role && request.user!.role === "admin") {
+      role = "owner";
+    }
     if (!role) {
       return reply.status(403).send({ error: "Access denied" });
     }
@@ -61,7 +65,8 @@ export async function worldRoutes(fastify: FastifyInstance) {
   fastify.put<{ Params: { worldId: string } }>("/:worldId", async (request, reply) => {
     const { worldId } = request.params;
 
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    let role = await worldService.getUserRole(request.user!.userId, worldId);
+    if (!role && request.user!.role === "admin") role = "owner";
     if (!role || role === "viewer") {
       return reply.status(403).send({ error: "Only owners and editors can update worlds" });
     }
@@ -83,7 +88,8 @@ export async function worldRoutes(fastify: FastifyInstance) {
   fastify.delete<{ Params: { worldId: string } }>("/:worldId", async (request, reply) => {
     const { worldId } = request.params;
 
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    let role = await worldService.getUserRole(request.user!.userId, worldId);
+    if (!role && request.user!.role === "admin") role = "owner";
     if (role !== "owner") {
       return reply.status(403).send({ error: "Only owners can delete worlds" });
     }

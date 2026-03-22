@@ -88,10 +88,17 @@ export async function actorRoutes(fastify: FastifyInstance) {
 
   fastify.addHook("preHandler", fastify.authenticate);
 
+  // Helper to get effective role (admin bypass)
+  async function getEffectiveRole(userId: string, userRole: string, worldId: string) {
+    const role = await worldService.getUserRole(userId, worldId);
+    if (!role && userRole === "admin") return "owner";
+    return role;
+  }
+
   // Create actor
   fastify.post<{ Params: { worldId: string } }>("/:worldId/actors", async (request, reply) => {
     const { worldId } = request.params;
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role || role === "viewer") {
       return reply.status(403).send({ error: "Viewers cannot create actors" });
     }
@@ -108,7 +115,7 @@ export async function actorRoutes(fastify: FastifyInstance) {
   // List actors in world
   fastify.get<{ Params: { worldId: string } }>("/:worldId/actors", async (request, reply) => {
     const { worldId } = request.params;
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role) {
       return reply.status(403).send({ error: "Access denied" });
     }
@@ -119,7 +126,7 @@ export async function actorRoutes(fastify: FastifyInstance) {
   // Get actor by ID
   fastify.get<{ Params: { worldId: string; actorId: string } }>("/:worldId/actors/:actorId", async (request, reply) => {
     const { worldId, actorId } = request.params;
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role) {
       return reply.status(403).send({ error: "Access denied" });
     }
@@ -135,7 +142,7 @@ export async function actorRoutes(fastify: FastifyInstance) {
   // Update actor
   fastify.put<{ Params: { worldId: string; actorId: string } }>("/:worldId/actors/:actorId", async (request, reply) => {
     const { worldId, actorId } = request.params;
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role || role === "viewer") {
       return reply.status(403).send({ error: "Viewers cannot edit actors" });
     }
@@ -156,7 +163,7 @@ export async function actorRoutes(fastify: FastifyInstance) {
   // Delete actor
   fastify.delete<{ Params: { worldId: string; actorId: string } }>("/:worldId/actors/:actorId", async (request, reply) => {
     const { worldId, actorId } = request.params;
-    const role = await worldService.getUserRole(request.user!.userId, worldId);
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role || role === "viewer") {
       return reply.status(403).send({ error: "Viewers cannot delete actors" });
     }

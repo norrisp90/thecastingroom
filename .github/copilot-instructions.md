@@ -25,6 +25,11 @@ AI character development platform. Next.js 15 frontend (static export) deployed 
 - **AcrPull role assignment**: The GitHub Actions service principal has `Contributor` role, which cannot create role assignments. AcrPull must be granted manually: `az role assignment create --assignee <MI-principalId> --role AcrPull --scope <ACR-resource-id>`.
 - **Container App stuck provisioning**: If `provisioningState` is stuck at `InProgress`, delete the Container App (`az containerapp delete`) and recreate via the Deploy Infrastructure workflow, then re-grant AcrPull and re-configure ACR registry.
 - **Backend workflow dockerfilePath**: The `dockerfilePath` in `azure/container-apps-deploy-action` is relative to `appSourcePath`, not the repo root. Use `./Dockerfile` (not `./backend/Dockerfile`) when `appSourcePath: ./backend`.
+- **Next.js static export + dynamic routes**: `generateStaticParams()` must return at least one entry (not `[]`). Use `[{ slug: ["_"] }]`. Split pages into `page.tsx` (server wrapper with `generateStaticParams`) + `client.tsx` (`"use client"`). Wrap `useSearchParams()` in `<Suspense>`.
+- **SSR-safe localStorage**: Guard with `typeof window === "undefined"` — SSR prerendering has no browser APIs. Never call browser-API functions outside `useEffect`.
+- **Parallel authFetch race condition**: When multiple `authFetch` calls fire in parallel and the JWT is expired, all get 401 and race to refresh. The first revokes the old refresh token, causing the rest to fail and trigger logout. **Solution**: use a shared `refreshPromise` so concurrent callers share one in-flight refresh (implemented in `frontend/src/lib/auth.ts`).
+- **Admin users vs. WorldPermissions**: System-level admins (`role: "admin"` in JWT) must bypass `WorldPermissions` checks. Every route handler that calls `getUserRole` should also check `request.user.role === "admin"` and grant owner-level access.
+- **CORS multi-origin**: `FRONTEND_URL` env var supports comma-separated origins. Backend splits on commas: `origin: FRONTEND_URL.split(",").map(s => s.trim())`. Set to `https://zealous-rock-090eeb003.2.azurestaticapps.net,http://localhost:3000` for both production + local.
 
 ## Build & Deploy Commands
 

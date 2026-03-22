@@ -149,7 +149,9 @@ function WorldDetail({ worldId }: { worldId: string }) {
           setEditGenre(w.genre);
           setEditTone(w.toneGuidelines);
         } else {
-          setError("World not found or access denied.");
+          const errData = await worldRes.json().catch(() => null);
+          const msg = errData?.error || `Server error (${worldRes.status})`;
+          setError(msg);
         }
         if (actorsRes.ok) {
           const a = await actorsRes.json();
