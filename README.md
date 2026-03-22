@@ -77,4 +77,15 @@ All deployment happens via GitHub Actions on push to `main`:
 
 ## Status
 
-**Phase 1 — Foundation scaffold complete.** Auth, Worlds, Actors, Auditions, Prompt Compilation implemented. Ready for first Azure deployment.
+**Phase 2 — Full frontend coverage.** All backend endpoints (19 total) now have corresponding frontend pages. Auth, Worlds CRUD, Actor CRUD, Audition Chat all implemented end-to-end. Deployed to Azure (SWA + Container Apps).
+
+### Frontend Pages
+- `/` — Landing page
+- `/login` / `/register` — Auth (invite code: required)
+- `/dashboard` — World listing + management
+- `/worlds/new` — Create world
+- `/worlds/[id]` — World detail hub (actors list, auditions list, inline edit, delete)
+- `/worlds/[id]/actors/new` — Create actor (7 profile sections, 50+ fields)
+- `/worlds/[id]/actors/[actorId]` — Actor detail (view/edit/delete)
+- `/worlds/[id]/auditions/new` — Start audition session
+- `/worlds/[id]/auditions/[sessionId]` — AI conversation chat interface
