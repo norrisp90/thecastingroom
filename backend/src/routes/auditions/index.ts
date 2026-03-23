@@ -220,11 +220,21 @@ export async function auditionRoutes(fastify: FastifyInstance) {
     }));
     apiMessages.push({ role: "user", content: result.data.content });
 
-    // Set up SSE headers
+    // Build CORS headers for the raw SSE response (reply.raw.writeHead bypasses
+    // Fastify's response pipeline, so @fastify/cors headers are not included automatically)
+    const origin = request.headers.origin;
+    const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:3000").split(",").map(s => s.trim());
+    const corsOrigin = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+
+    // Tell Fastify we are handling the response ourselves (prevents double-send)
+    reply.hijack();
+
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
-      Connection: "keep-alive",
+      "Connection": "keep-alive",
+      "Access-Control-Allow-Origin": corsOrigin,
+      "Access-Control-Allow-Credentials": "true",
     });
 
     let fullContent = "";
