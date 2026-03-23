@@ -36,7 +36,7 @@ export async function createRealtimeToken(
   }
 
   const baseUrl = endpoint.replace(/\/$/, "");
-  const url = `${baseUrl}/openai/realtimeSessions?api-version=2025-04-01-preview`;
+  const url = `${baseUrl}/openai/deployments/${model}/realtimeSessions?api-version=2025-04-01-preview`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -45,7 +45,6 @@ export async function createRealtimeToken(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model,
       voice,
       instructions,
       input_audio_transcription: { model: "whisper-1" },
