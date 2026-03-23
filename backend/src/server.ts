@@ -7,6 +7,7 @@ import { worldRoutes } from "./routes/worlds/index.js";
 import { actorRoutes } from "./routes/actors/index.js";
 import { auditionRoutes } from "./routes/auditions/index.js";
 import { roleRoutes } from "./routes/roles/index.js";
+import { adminRoutes } from "./routes/admin/index.js";
 
 const server = Fastify({
   logger: true,
@@ -28,6 +29,7 @@ async function start() {
   await server.register(actorRoutes, { prefix: "/api/worlds" });
   await server.register(roleRoutes, { prefix: "/api/worlds" });
   await server.register(auditionRoutes, { prefix: "/api/worlds" });
+  await server.register(adminRoutes, { prefix: "/api/admin" });
 
   // Health check
   server.get("/api/health", async () => ({ status: "ok" }));

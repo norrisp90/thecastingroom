@@ -12,9 +12,13 @@ export interface User {
   passwordHash: string;
   displayName: string;
   role: UserRole;
+  disabled?: boolean;
   createdAt: string;
   lastLogin: string;
 }
+
+/** User view returned by admin endpoints (no passwordHash) */
+export type AdminUserView = Omit<User, "passwordHash"> & { worldCount?: number };
 
 export interface RefreshToken {
   id: string;
@@ -185,6 +189,7 @@ export interface AuditionSession {
   sceneSetup: string;
   compiledSystemPrompt: string;
   model: string;
+  mode?: "chat" | "voice";
   turns: ConversationTurn[];
   createdBy: string;
   createdAt: string;

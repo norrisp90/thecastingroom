@@ -43,3 +43,33 @@ export async function apiFetch(
 
   throw lastError;
 }
+
+// ── Admin API helpers ────────────────────────────────────────────────────
+
+export interface AdminStats {
+  totalUsers: number;
+  adminCount: number;
+  disabledCount: number;
+  recentlyActive: number;
+}
+
+export interface AdminUserView {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "admin" | "user";
+  disabled?: boolean;
+  createdAt: string;
+  lastLogin: string;
+  worldCount?: number;
+}
+
+export interface UserWorldPermission {
+  id: string;
+  userId: string;
+  worldId: string;
+  role: "owner" | "editor" | "viewer";
+  invitedBy: string;
+  grantedAt: string;
+  worldName?: string;
+}

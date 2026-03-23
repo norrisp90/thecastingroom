@@ -65,6 +65,9 @@ export class AuthService {
     }
 
     const user = users[0] as User;
+    if (user.disabled) {
+      throw new Error("Account disabled");
+    }
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       throw new Error("Invalid email or password");
@@ -106,6 +109,9 @@ export class AuthService {
     const { resource: user } = await usersContainer.item(storedToken.userId, storedToken.userId).read<User>();
     if (!user) {
       throw new Error("User not found");
+    }
+    if (user.disabled) {
+      throw new Error("Account disabled");
     }
 
     return this.generateTokens(user);

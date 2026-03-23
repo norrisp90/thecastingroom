@@ -77,9 +77,16 @@ export default function DashboardPage() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl">Your Worlds</h2>
-            <Button asChild>
-              <a href="/worlds/new">Create World</a>
-            </Button>
+            <div className="flex items-center gap-2">
+              {user?.role === "admin" && (
+                <Button variant="outline" asChild>
+                  <a href="/admin">Admin Panel</a>
+                </Button>
+              )}
+              <Button asChild>
+                <a href="/worlds/new">Create World</a>
+              </Button>
+            </div>
           </div>
 
           {loading ? (

@@ -5,7 +5,7 @@ import { ActorService } from "../../services/actor.service.js";
 import { RoleService } from "../../services/role.service.js";
 import { WorldService } from "../../services/world.service.js";
 import { compileSystemPrompt } from "../../services/prompt.service.js";
-import { chatCompletion, chatCompletionStream } from "../../services/openai.service.js";
+import { chatCompletion, chatCompletionStream, createRealtimeToken } from "../../services/openai.service.js";
 import type { AuditionSession, ConversationTurn } from "../../types/index.js";
 
 const createAuditionSchema = z.object({
@@ -13,6 +13,7 @@ const createAuditionSchema = z.object({
   roleId: z.string().uuid().optional(),
   sceneSetup: z.string().max(5000).default(""),
   model: z.string().default("gpt-41-mini"),
+  mode: z.enum(["chat", "voice"]).default("chat"),
 });
 
 const sendMessageSchema = z.object({
@@ -79,7 +80,8 @@ export async function auditionRoutes(fastify: FastifyInstance) {
       roleId: result.data.roleId,
       sceneSetup: result.data.sceneSetup,
       compiledSystemPrompt: systemPrompt,
-      model: result.data.model,
+      model: result.data.mode === "voice" ? "gpt-4o-realtime" : result.data.model,
+      mode: result.data.mode,
       turns: [],
       createdBy: request.user!.userId,
       createdAt: now,
@@ -125,6 +127,86 @@ export async function auditionRoutes(fastify: FastifyInstance) {
     } catch {
       return reply.status(404).send({ error: "Session not found" });
     }
+  });
+
+  // Get ephemeral Realtime API token for voice auditions
+  fastify.post<{ Params: { worldId: string; sessionId: string } }>("/:worldId/auditions/:sessionId/realtime-token", async (request, reply) => {
+    const { worldId, sessionId } = request.params;
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
+    if (!role || role === "viewer") {
+      return reply.status(403).send({ error: "Access denied" });
+    }
+
+    let session: AuditionSession;
+    try {
+      const { resource } = await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).read<AuditionSession>();
+      if (!resource) {
+        return reply.status(404).send({ error: "Session not found" });
+      }
+      session = resource;
+    } catch {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    if (session.mode !== "voice") {
+      return reply.status(400).send({ error: "Session is not a voice audition" });
+    }
+
+    try {
+      const tokenData = await createRealtimeToken(
+        session.model,
+        "ash",
+        session.compiledSystemPrompt
+      );
+      return tokenData;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      request.log.error({ err }, "Failed to create realtime token");
+      return reply.status(502).send({ error: `Realtime token creation failed: ${errMsg}` });
+    }
+  });
+
+  // Save transcript turns from a voice audition
+  const transcriptSchema = z.object({
+    turns: z.array(z.object({
+      role: z.enum(["user", "assistant"]),
+      content: z.string(),
+      timestamp: z.string(),
+    })),
+  });
+
+  fastify.post<{ Params: { worldId: string; sessionId: string } }>("/:worldId/auditions/:sessionId/transcript", async (request, reply) => {
+    const { worldId, sessionId } = request.params;
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
+    if (!role || role === "viewer") {
+      return reply.status(403).send({ error: "Access denied" });
+    }
+
+    const result = transcriptSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(400).send({ error: result.error.flatten().fieldErrors });
+    }
+
+    let session: AuditionSession;
+    try {
+      const { resource } = await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).read<AuditionSession>();
+      if (!resource) {
+        return reply.status(404).send({ error: "Session not found" });
+      }
+      session = resource;
+    } catch {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    session.turns.push(...result.data.turns.map(t => ({
+      role: t.role,
+      content: t.content,
+      timestamp: t.timestamp,
+    })));
+    session.updatedAt = new Date().toISOString();
+    await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).replace(session);
+
+    return { saved: result.data.turns.length };
   });
 
   // Send message in audition (non-streaming for MVP)

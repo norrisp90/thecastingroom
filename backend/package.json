@@ -5,7 +5,10 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "tsx watch src/server.ts"
+    "dev": "tsx watch src/server.ts",
+    "seed": "npx tsx scripts/seed-leonidas.ts",
+    "seed:magee": "npx tsx scripts/seed-magee.ts",
+    "seed:magee-pro": "npx tsx scripts/seed-magee-pro.ts"
   },
   "dependencies": {
     "fastify": "^5.3.0",

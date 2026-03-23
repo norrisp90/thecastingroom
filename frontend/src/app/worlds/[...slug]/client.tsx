@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, useCallback, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,6 +12,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { authFetch, getUser, logout } from "@/lib/auth";
+import { LivingShadowRenderer, type ShadowState } from "@/lib/living-shadow";
+import { RealtimeAudioSession, type RealtimeTokenData } from "@/lib/realtime-audio";
 
 /* ───────────────────────────────────────────
    ROUTER — parse slug, delegate to sub-view
@@ -60,7 +62,7 @@ export default function WorldRouterClient() {
 
   if (slug[1] === "auditions") {
     if (slug[2] === "new") return <NewAuditionView worldId={worldId} />;
-    if (slug[2]) return <AuditionChat worldId={worldId} sessionId={slug[2]} />;
+    if (slug[2]) return <AuditionSessionRouter worldId={worldId} sessionId={slug[2]} />;
   }
 
   return (
@@ -1290,6 +1292,7 @@ function NewAuditionView({ worldId }: { worldId: string }) {
   const [actorId, setActorId] = useState(preselectedActorId);
   const [roleId, setRoleId] = useState("");
   const [sceneSetup, setSceneSetup] = useState("");
+  const [mode, setMode] = useState<"chat" | "voice">("chat");
   const [loadingActors, setLoadingActors] = useState(true);
   const [coldStart, setColdStart] = useState(false);
   const [error, setError] = useState("");
@@ -1322,7 +1325,7 @@ function NewAuditionView({ worldId }: { worldId: string }) {
     e.preventDefault();
     if (!actorId) { setError("Select an actor."); return; }
     setError(""); setSubmitting(true); setColdStart(false);
-    const body: Record<string, string> = { actorId, sceneSetup };
+    const body: Record<string, string> = { actorId, sceneSetup, mode };
     if (roleId) body.roleId = roleId;
     try {
       const res = await authFetch(`/api/worlds/${worldId}/auditions`, {
@@ -1350,6 +1353,25 @@ function NewAuditionView({ worldId }: { worldId: string }) {
             <CardContent className="space-y-6">
               {coldStart && <p className="text-sm text-muted-foreground text-center animate-pulse">Waking up the server… this may take a moment.</p>}
               {error && <p className="text-sm text-destructive text-center">{error}</p>}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Audition Mode</label>
+                <div className="flex gap-4">
+                  <label className={`flex items-center gap-2 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${mode === "chat" ? "border-secondary bg-secondary/10" : "border-input hover:border-muted-foreground"}`}>
+                    <input type="radio" name="mode" value="chat" checked={mode === "chat"} onChange={() => setMode("chat")} className="accent-secondary" />
+                    <div>
+                      <p className="text-sm font-medium">Chat</p>
+                      <p className="text-xs text-muted-foreground">Text conversation</p>
+                    </div>
+                  </label>
+                  <label className={`flex items-center gap-2 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${mode === "voice" ? "border-secondary bg-secondary/10" : "border-input hover:border-muted-foreground"}`}>
+                    <input type="radio" name="mode" value="voice" checked={mode === "voice"} onChange={() => setMode("voice")} className="accent-secondary" />
+                    <div>
+                      <p className="text-sm font-medium">Voice — Spirit Mirror</p>
+                      <p className="text-xs text-muted-foreground">Real-time voice with visual</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
               <div className="space-y-2">
                 <label htmlFor="actor" className="text-sm font-medium">Actor <span className="text-destructive">*</span></label>
                 {loadingActors ? <p className="text-sm text-muted-foreground">Loading actors…</p> : actors.length === 0 ? (
@@ -1389,12 +1411,251 @@ function NewAuditionView({ worldId }: { worldId: string }) {
 }
 
 /* ═══════════════════════════════════════════
-   5. AUDITION CHAT
+   5. AUDITION SESSION ROUTER
+   ═══════════════════════════════════════════ */
+
+function AuditionSessionRouter({ worldId, sessionId }: { worldId: string; sessionId: string }) {
+  const [mode, setMode] = useState<"chat" | "voice" | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function check() {
+      try {
+        const res = await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}`);
+        if (!res.ok) { setError("Session not found or access denied."); return; }
+        const data = await res.json();
+        setMode(data.mode || "chat");
+      } catch { setError("Unable to connect to server."); } finally { setLoading(false); }
+    }
+    check();
+  }, [worldId, sessionId]);
+
+  if (loading) return <main className="min-h-screen flex items-center justify-center"><p className="text-muted-foreground">Loading…</p></main>;
+  if (error) return <main className="min-h-screen flex items-center justify-center flex-col gap-4"><p className="text-destructive">{error}</p><Button asChild><a href={`/worlds/${worldId}`}>Back to World</a></Button></main>;
+  if (mode === "voice") return <RealtimeAudition worldId={worldId} sessionId={sessionId} />;
+  return <AuditionChat worldId={worldId} sessionId={sessionId} />;
+}
+
+/* ═══════════════════════════════════════════
+   5b. REALTIME AUDITION (Voice — Spirit Mirror)
+   ═══════════════════════════════════════════ */
+
+function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rendererRef = useRef<LivingShadowRenderer | null>(null);
+  const sessionRef = useRef<RealtimeAudioSession | null>(null);
+
+  const [connectionState, setConnectionState] = useState<"idle" | "connecting" | "connected" | "disconnected" | "error">("idle");
+  const [actorName, setActorName] = useState("Character");
+  const [userTranscript, setUserTranscript] = useState("");
+  const [assistantTranscript, setAssistantTranscript] = useState("");
+  const [error, setError] = useState("");
+  const [micActive, setMicActive] = useState(false);
+
+  const handleAmplitude = useCallback((rms: number) => {
+    rendererRef.current?.setAmplitude(rms);
+  }, []);
+
+  const handleStateChange = useCallback((state: "connecting" | "connected" | "disconnected" | "error") => {
+    setConnectionState(state);
+    if (state === "connected") {
+      // Materialise, then trigger greeting
+      rendererRef.current?.setState("MATERIALIZING");
+      setTimeout(() => {
+        sessionRef.current?.triggerGreeting();
+      }, 2200);
+    } else if (state === "disconnected") {
+      rendererRef.current?.setState("DEMATERIALIZING");
+    }
+  }, []);
+
+  const handleSpeechStarted = useCallback(() => {
+    setMicActive(true);
+    setUserTranscript("");
+    rendererRef.current?.setState("LISTENING");
+  }, []);
+
+  const handleSpeechStopped = useCallback(() => {
+    setMicActive(false);
+    rendererRef.current?.setState("THINKING");
+  }, []);
+
+  const handleResponseStarted = useCallback(() => {
+    setAssistantTranscript("");
+    rendererRef.current?.setState("SPEAKING");
+  }, []);
+
+  const handleResponseDone = useCallback(() => {
+    rendererRef.current?.setState("LISTENING");
+  }, []);
+
+  const handleTranscriptDelta = useCallback((role: "user" | "assistant", text: string, _isFinal: boolean) => {
+    if (role === "user") setUserTranscript(text);
+    else setAssistantTranscript(text);
+  }, []);
+
+  const handleError = useCallback((msg: string) => {
+    setError(msg);
+  }, []);
+
+  // Init renderer + connect
+  useEffect(() => {
+    let cancelled = false;
+    let sessionModel = "gpt-4o-realtime";
+
+    async function start() {
+      if (canvasRef.current && !rendererRef.current) {
+        const r = new LivingShadowRenderer();
+        r.init(canvasRef.current);
+        r.setState("STIRRING");
+        rendererRef.current = r;
+      }
+
+      try {
+        const sessionRes = await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}`);
+        if (sessionRes.ok) {
+          const data = await sessionRes.json();
+          sessionModel = data.model || "gpt-4o-realtime";
+          try {
+            const actorRes = await authFetch(`/api/worlds/${worldId}/actors/${data.actorId}`);
+            if (actorRes.ok) { const actor = await actorRes.json(); if (!cancelled) setActorName(actor.name); }
+          } catch {}
+        }
+      } catch {}
+
+      if (cancelled) return;
+
+      try {
+        const tokenRes = await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}/realtime-token`, { method: "POST" });
+        if (!tokenRes.ok) {
+          const errData = await tokenRes.json().catch(() => ({ error: "Token fetch failed" }));
+          if (!cancelled) setError(typeof errData.error === "string" ? errData.error : "Failed to get realtime token");
+          return;
+        }
+        const tokenData: RealtimeTokenData = await tokenRes.json();
+        if (cancelled) return;
+
+        const audio = new RealtimeAudioSession({
+          onStateChange: handleStateChange,
+          onSpeechStarted: handleSpeechStarted,
+          onSpeechStopped: handleSpeechStopped,
+          onResponseStarted: handleResponseStarted,
+          onResponseDone: handleResponseDone,
+          onTranscriptDelta: handleTranscriptDelta,
+          onAmplitude: handleAmplitude,
+          onError: handleError,
+        }, sessionModel);
+        sessionRef.current = audio;
+        await audio.connect(tokenData);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Connection failed");
+      }
+    }
+
+    start();
+
+    return () => {
+      cancelled = true;
+      sessionRef.current?.disconnect();
+      sessionRef.current = null;
+      rendererRef.current?.destroy();
+      rendererRef.current = null;
+    };
+  }, [worldId, sessionId, handleStateChange, handleSpeechStarted, handleSpeechStopped, handleResponseStarted, handleResponseDone, handleTranscriptDelta, handleAmplitude, handleError]);
+
+  // Handle resize
+  useEffect(() => {
+    function onResize() { rendererRef.current?.resize(); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  async function handleEnd() {
+    // Save transcripts
+    const transcripts = sessionRef.current?.getTranscripts() || [];
+    if (transcripts.length > 0) {
+      try {
+        await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}/transcript`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turns: transcripts }),
+        });
+      } catch { /* best effort */ }
+    }
+
+    rendererRef.current?.setState("DEMATERIALIZING");
+    sessionRef.current?.disconnect();
+    setTimeout(() => {
+      window.location.href = `/worlds/${worldId}`;
+    }, 1600);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black">
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+
+      {/* Overlay UI */}
+      <div className="absolute inset-0 pointer-events-none flex flex-col justify-between">
+        {/* Top bar */}
+        <div className="pointer-events-auto flex items-center justify-between px-6 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white/80">{actorName}</h2>
+            <p className="text-xs text-white/40">
+              {connectionState === "connecting" && "Connecting…"}
+              {connectionState === "connected" && "Spirit Mirror — Active"}
+              {connectionState === "disconnected" && "Disconnected"}
+              {connectionState === "error" && "Connection Error"}
+              {connectionState === "idle" && "Initializing…"}
+            </p>
+          </div>
+          <Button variant="outline" size="sm" className="pointer-events-auto bg-black/50 border-white/20 text-white hover:bg-white/10" onClick={handleEnd}>
+            End Audition
+          </Button>
+        </div>
+
+        {/* Mic indicator */}
+        {micActive && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2">
+            <div className="flex items-center gap-2 bg-black/60 rounded-full px-4 py-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs text-white/70">Listening…</span>
+            </div>
+          </div>
+        )}
+
+        {/* Bottom transcript area */}
+        <div className="px-6 pb-8 space-y-2 max-w-2xl mx-auto w-full">
+          {error && (
+            <div className="bg-destructive/20 rounded-lg px-4 py-2 text-center">
+              <p className="text-sm text-destructive">{error}</p>
+            </div>
+          )}
+          {userTranscript && (
+            <div className="bg-white/5 rounded-lg px-4 py-2">
+              <p className="text-xs text-white/40 mb-1">You</p>
+              <p className="text-sm text-white/70">{userTranscript}</p>
+            </div>
+          )}
+          {assistantTranscript && (
+            <div className="bg-white/10 rounded-lg px-4 py-2">
+              <p className="text-xs text-white/40 mb-1">{actorName}</p>
+              <p className="text-sm text-white/90">{assistantTranscript}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   6. AUDITION CHAT
    ═══════════════════════════════════════════ */
 
 interface TurnRating { believability?: number; consistency?: number; emotionalDepth?: number; voiceAccuracy?: number }
 interface Turn { role: "user" | "assistant"; content: string; timestamp: string; rating?: TurnRating; flaggedOutOfCharacter?: boolean }
-interface SessionData { id: string; worldId: string; actorId: string; sceneSetup: string; model: string; turns: Turn[]; compiledSystemPrompt?: string; createdAt: string }
+interface SessionData { id: string; worldId: string; actorId: string; sceneSetup: string; model: string; mode?: "chat" | "voice"; turns: Turn[]; compiledSystemPrompt?: string; createdAt: string }
 
 function AuditionChat({ worldId, sessionId }: { worldId: string; sessionId: string }) {
   const [session, setSession] = useState<SessionData | null>(null);
