@@ -52,7 +52,13 @@ export class RealtimeAudioSession {
     try {
       // Get microphone
       this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: { sampleRate: { ideal: REALTIME_SAMPLE_RATE }, channelCount: 1, echoCancellation: true },
+        audio: {
+          sampleRate: { ideal: REALTIME_SAMPLE_RATE },
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
 
       // Set up capture AudioContext

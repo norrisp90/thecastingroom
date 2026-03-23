@@ -38,7 +38,6 @@ export function connectToRealtimeWs(
 
   const baseWss = endpoint.replace(/\/$/, "").replace(/^https:/, "wss:");
   const url = `${baseWss}/openai/realtime?api-version=2025-04-01-preview&deployment=${encodeURIComponent(model)}`;
-  console.log(`[Realtime] Connecting to: ${url}`);
 
   const ws = new WebSocket(url, {
     headers: { "api-key": apiKey },
@@ -54,7 +53,8 @@ export function connectToRealtimeWs(
         input_audio_format: "pcm16",
         output_audio_format: "pcm16",
         input_audio_transcription: { model: "whisper-1" },
-        turn_detection: { type: "server_vad" },
+        input_audio_noise_reduction: { type: "far_field" },
+        turn_detection: { type: "semantic_vad", eagerness: "low" },
       },
     }));
   });
