@@ -31,6 +31,15 @@ export class RealtimeAudioSession {
 
   // Playback queue — schedule PCM16 chunks for gapless output
   private playbackTime = 0;
+  private activeSources: AudioBufferSourceNode[] = [];
+
+  // Mic ducking — stop forwarding mic while AI audio plays to prevent echo triggers
+  private micForwardingPaused = false;
+  private localRmsAboveThreshold = 0;
+  private resumeForwardingTimeout: ReturnType<typeof setTimeout> | null = null;
+  private static readonly RMS_THRESHOLD = 0.1;
+  private static readonly RMS_FRAMES_REQUIRED = 3;
+  private static readonly RESUME_GRACE_MS = 300;
 
   // Accumulated transcripts
   private userTranscriptBuffer = "";
@@ -85,13 +94,33 @@ export class RealtimeAudioSession {
 
       this.captureWorklet = new AudioWorkletNode(this.captureCtx, "capture-processor");
       this.captureWorklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-        if (this.ws?.readyState === WebSocket.OPEN) {
-          const pcm16 = float32ToPcm16Base64(ev.data);
-          this.ws.send(JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: pcm16,
-          }));
+        if (this.ws?.readyState !== WebSocket.OPEN) return;
+
+        if (this.micForwardingPaused) {
+          // Mic is ducked — check local amplitude for real speech (interruption)
+          const rms = computeRms(ev.data);
+          if (rms > RealtimeAudioSession.RMS_THRESHOLD) {
+            this.localRmsAboveThreshold++;
+            if (this.localRmsAboveThreshold >= RealtimeAudioSession.RMS_FRAMES_REQUIRED) {
+              this.handleLocalInterruption();
+              // Forward this frame since it's real speech
+              const pcm16 = float32ToPcm16Base64(ev.data);
+              this.ws.send(JSON.stringify({
+                type: "input_audio_buffer.append",
+                audio: pcm16,
+              }));
+            }
+          } else {
+            this.localRmsAboveThreshold = 0;
+          }
+          return;
         }
+
+        const pcm16 = float32ToPcm16Base64(ev.data);
+        this.ws.send(JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: pcm16,
+        }));
       };
       source.connect(this.captureWorklet);
       // AudioWorklet needs a destination to keep processing
@@ -240,6 +269,24 @@ export class RealtimeAudioSession {
     const startAt = Math.max(now, this.playbackTime);
     source.start(startAt);
     this.playbackTime = startAt + buffer.duration;
+
+    // Track source for interruption stop
+    this.activeSources.push(source);
+    source.onended = () => {
+      const idx = this.activeSources.indexOf(source);
+      if (idx >= 0) this.activeSources.splice(idx, 1);
+    };
+
+    // Pause mic forwarding while AI audio is playing
+    if (!this.micForwardingPaused) {
+      this.micForwardingPaused = true;
+      this.localRmsAboveThreshold = 0;
+    }
+    // Cancel any pending resume since new audio arrived
+    if (this.resumeForwardingTimeout) {
+      clearTimeout(this.resumeForwardingTimeout);
+      this.resumeForwardingTimeout = null;
+    }
   }
 
   private setupAmplitudeAnalysis() {
@@ -262,8 +309,44 @@ export class RealtimeAudioSession {
         this.callbacks.onAmplitude(0.3 + Math.random() * 0.2);
       } else {
         this.callbacks.onAmplitude(0);
+        // AI audio finished — schedule mic resume after grace period
+        if (this.micForwardingPaused && !this.resumeForwardingTimeout) {
+          this.resumeForwardingTimeout = setTimeout(() => {
+            this.micForwardingPaused = false;
+            this.localRmsAboveThreshold = 0;
+            this.resumeForwardingTimeout = null;
+          }, RealtimeAudioSession.RESUME_GRACE_MS);
+        }
       }
     }, 33); // ~30fps
+  }
+
+  /** Stop all in-flight playback and cancel the server response */
+  private handleLocalInterruption() {
+    // Stop all scheduled audio sources
+    for (const src of this.activeSources) {
+      try { src.stop(); } catch { /* already ended */ }
+    }
+    this.activeSources = [];
+
+    // Reset playback time
+    if (this.playbackCtx) {
+      this.playbackTime = this.playbackCtx.currentTime;
+    }
+
+    // Cancel the server's in-progress response
+    this.sendEvent({ type: "response.cancel" });
+
+    // Resume mic forwarding immediately
+    this.micForwardingPaused = false;
+    this.localRmsAboveThreshold = 0;
+    if (this.resumeForwardingTimeout) {
+      clearTimeout(this.resumeForwardingTimeout);
+      this.resumeForwardingTimeout = null;
+    }
+
+    // Notify UI
+    this.callbacks.onSpeechStarted();
   }
 
   getTranscripts() {
@@ -277,6 +360,16 @@ export class RealtimeAudioSession {
       clearInterval(this.amplitudeIntervalId);
       this.amplitudeIntervalId = null;
     }
+
+    if (this.resumeForwardingTimeout) {
+      clearTimeout(this.resumeForwardingTimeout);
+      this.resumeForwardingTimeout = null;
+    }
+
+    for (const src of this.activeSources) {
+      try { src.stop(); } catch { /* already ended */ }
+    }
+    this.activeSources = [];
 
     if (this.captureWorklet) {
       this.captureWorklet.disconnect();
@@ -328,4 +421,12 @@ function base64ToInt16Array(base64: string): Int16Array {
     bytes[i] = binary.charCodeAt(i);
   }
   return new Int16Array(bytes.buffer);
+}
+
+function computeRms(float32: Float32Array): number {
+  let sum = 0;
+  for (let i = 0; i < float32.length; i++) {
+    sum += float32[i] * float32[i];
+  }
+  return Math.sqrt(sum / float32.length);
 }
