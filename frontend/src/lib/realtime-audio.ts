@@ -41,6 +41,9 @@ export class RealtimeAudioSession {
   private static readonly RMS_FRAMES_REQUIRED = 3;
   private static readonly RESUME_GRACE_MS = 300;
 
+  // Track whether the server has an active response in flight
+  private responseActive = false;
+
   // Accumulated transcripts
   private userTranscriptBuffer = "";
   private assistantTranscriptBuffer = "";
@@ -230,17 +233,23 @@ export class RealtimeAudioSession {
           break;
 
         case "response.created":
+          this.responseActive = true;
           this.callbacks.onResponseStarted();
           this.assistantTranscriptBuffer = "";
           break;
 
         case "response.done":
+          this.responseActive = false;
           this.callbacks.onResponseDone();
           break;
 
-        case "error":
-          this.callbacks.onError(event.error?.message || "Realtime API error");
+        case "error": {
+          const errMsg: string = event.error?.message || "Realtime API error";
+          // Suppress benign cancellation errors (no active response to cancel)
+          if (errMsg.toLowerCase().includes("cancellation failed")) break;
+          this.callbacks.onError(errMsg);
           break;
+        }
       }
     } catch {
       // Ignore malformed messages
@@ -334,8 +343,11 @@ export class RealtimeAudioSession {
       this.playbackTime = this.playbackCtx.currentTime;
     }
 
-    // Cancel the server's in-progress response
-    this.sendEvent({ type: "response.cancel" });
+    // Cancel the server's in-progress response (only if one is active)
+    if (this.responseActive) {
+      this.sendEvent({ type: "response.cancel" });
+      this.responseActive = false;
+    }
 
     // Resume mic forwarding immediately
     this.micForwardingPaused = false;
