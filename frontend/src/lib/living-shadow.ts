@@ -241,7 +241,7 @@ export class LivingShadowRenderer {
       p.y += p.vy;
       const lifeRatio = p.life / p.maxLife;
       p.opacity = lifeRatio < 0.2 ? lifeRatio / 0.2 : lifeRatio > 0.8 ? (1 - lifeRatio) / 0.2 : 1;
-      p.opacity *= activity * 0.6;
+      p.opacity *= activity * 0.85;
       if (p.life >= p.maxLife) {
         this.particles.splice(i, 1);
       }
@@ -320,9 +320,9 @@ export class LivingShadowRenderer {
       const ny = simplex2(i * 0.7 + 100, t * 0.2 + 100) * 0.5 + 0.5;
       const rx = 80 + simplex2(i * 0.3, t * 0.1) * 60;
       const ry = 40 + simplex2(i * 0.3 + 50, t * 0.1) * 30;
-      const alpha = 0.015 + simplex2(i * 0.5 + 200, t * 0.15) * 0.01;
+      const alpha = 0.04 + simplex2(i * 0.5 + 200, t * 0.15) * 0.025;
       ctx.globalAlpha = Math.max(0, alpha);
-      ctx.fillStyle = "#1a2a3a";
+      ctx.fillStyle = "#2a4a6a";
       ctx.beginPath();
       ctx.ellipse(nx * w, ny * h, rx, ry, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -355,9 +355,9 @@ export class LivingShadowRenderer {
     // Silhouette fill — dark gradient
     drawSilhouettePath(ctx, cx, cy, scale);
     const grad = ctx.createLinearGradient(cx, cy - 180 * scale, cx, cy + 200 * scale);
-    grad.addColorStop(0, "#0a0a12");
-    grad.addColorStop(0.5, "#05050a");
-    grad.addColorStop(1, "rgba(5,5,10,0)");
+    grad.addColorStop(0, "#1a1a2e");
+    grad.addColorStop(0.5, "#10101c");
+    grad.addColorStop(1, "rgba(10,10,20,0)");
     ctx.fillStyle = grad;
     ctx.fill();
 
@@ -383,13 +383,13 @@ export class LivingShadowRenderer {
 
     ctx.save();
     ctx.translate(sway, 0);
-    ctx.globalAlpha = opacity * (0.25 + this.amplitude * 0.25);
-    ctx.filter = "blur(8px)";
+    ctx.globalAlpha = opacity * (0.5 + this.amplitude * 0.35);
+    ctx.filter = "blur(6px)";
 
     drawSilhouettePath(ctx, cx, cy, scale);
-    const pulse = 0.3 + Math.sin(this.time * 2) * 0.1 + this.amplitude * 0.3;
-    ctx.strokeStyle = `rgba(100, 140, 180, ${pulse})`;
-    ctx.lineWidth = 3;
+    const pulse = 0.5 + Math.sin(this.time * 2) * 0.15 + this.amplitude * 0.35;
+    ctx.strokeStyle = `rgba(130, 170, 220, ${pulse})`;
+    ctx.lineWidth = 4;
     ctx.stroke();
 
     ctx.restore();
@@ -399,7 +399,7 @@ export class LivingShadowRenderer {
     ctx.save();
     for (const p of this.particles) {
       ctx.globalAlpha = p.opacity;
-      ctx.fillStyle = "#6688aa";
+      ctx.fillStyle = "#88aacc";
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
@@ -413,7 +413,7 @@ export class LivingShadowRenderer {
     const radius = Math.max(w, h) * 0.7;
     const grad = ctx.createRadialGradient(cx, cy, radius * 0.3, cx, cy, radius);
     grad.addColorStop(0, "rgba(0,0,0,0)");
-    grad.addColorStop(1, "rgba(0,0,0,0.8)");
+    grad.addColorStop(1, "rgba(0,0,0,0.5)");
     ctx.save();
     ctx.globalAlpha = 1;
     ctx.fillStyle = grad;
