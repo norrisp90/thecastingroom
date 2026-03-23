@@ -6,6 +6,7 @@
 export interface RealtimeTokenData {
   token: string;
   endpoint: string;
+  model: string;
   expiresAt: string;
 }
 
@@ -85,9 +86,8 @@ export class RealtimeAudioSession {
       const offer = await this.pc.createOffer();
       await this.pc.setLocalDescription(offer);
 
-      // Send SDP to Azure OpenAI Realtime API
-      const baseUrl = tokenData.endpoint.replace(/\/$/, "");
-      const sdpUrl = `${baseUrl}/openai/realtimeConnections?api-version=2025-04-01-preview&deployment=${this.model}`;
+      // Send SDP to Azure OpenAI Realtime API (legacy protocol — regional endpoint)
+      const sdpUrl = `https://swedencentral.realtimeapi-preview.ai.azure.com/v1/realtimertc?model=${tokenData.model}`;
 
       const sdpRes = await fetch(sdpUrl, {
         method: "POST",

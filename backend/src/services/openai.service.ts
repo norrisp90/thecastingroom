@@ -21,14 +21,15 @@ function getClient(): AzureOpenAI {
 }
 
 /**
- * Create an ephemeral Realtime API token via Azure OpenAI REST API.
- * The API key stays server-side; the browser gets a short-lived token.
+ * Create an ephemeral Realtime API token via Azure OpenAI REST API (legacy protocol).
+ * Uses /openai/realtimeapi/sessions with api-key auth.
+ * The API key stays server-side; the browser gets a short-lived ephemeral key.
  */
 export async function createRealtimeToken(
   model: string,
   voice: string,
   instructions: string
-): Promise<{ token: string; endpoint: string; expiresAt: string }> {
+): Promise<{ token: string; endpoint: string; model: string; expiresAt: string }> {
   const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
   const apiKey = process.env.AZURE_OPENAI_API_KEY;
   if (!endpoint || !apiKey) {
@@ -36,7 +37,7 @@ export async function createRealtimeToken(
   }
 
   const baseUrl = endpoint.replace(/\/$/, "");
-  const url = `${baseUrl}/openai/deployments/${model}/realtimeSessions?api-version=2025-04-01-preview`;
+  const url = `${baseUrl}/openai/realtimeapi/sessions?api-version=2025-04-01-preview`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -45,6 +46,7 @@ export async function createRealtimeToken(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
+      model,
       voice,
       instructions,
       input_audio_transcription: { model: "whisper-1" },
@@ -59,8 +61,9 @@ export async function createRealtimeToken(
 
   const data = await res.json() as { id?: string; client_secret?: { value?: string; expires_at?: number } };
   return {
-    token: data.client_secret?.value ?? data.id ?? "",
+    token: data.client_secret?.value ?? "",
     endpoint: baseUrl,
+    model,
     expiresAt: data.client_secret?.expires_at
       ? new Date(data.client_secret.expires_at * 1000).toISOString()
       : new Date(Date.now() + 60_000).toISOString(),

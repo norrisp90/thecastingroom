@@ -80,7 +80,7 @@ export async function auditionRoutes(fastify: FastifyInstance) {
       roleId: result.data.roleId,
       sceneSetup: result.data.sceneSetup,
       compiledSystemPrompt: systemPrompt,
-      model: result.data.mode === "voice" ? "gpt-4o-realtime" : result.data.model,
+      model: result.data.mode === "voice" ? "gpt-realtime-mini" : result.data.model,
       mode: result.data.mode,
       turns: [],
       createdBy: request.user!.userId,
