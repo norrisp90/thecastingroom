@@ -1546,7 +1546,7 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
       try {
         // Build WebSocket URL to backend relay
         const token = localStorage.getItem("accessToken") || "";
-        const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+        const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "");
         const wsBase = apiBase.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
         const wsUrl = `${wsBase}/api/worlds/${worldId}/auditions/${sessionId}/realtime-ws?token=${encodeURIComponent(token)}`;
 

@@ -135,10 +135,11 @@ export async function auditionRoutes(fastify: FastifyInstance) {
   // WebSocket relay for voice auditions
   // Browser connects here; backend opens a WS to Azure OpenAI and relays messages.
   // Auth via query param since browser WebSocket API can't set headers.
+  // preHandler: [] bypasses the plugin-level authenticate hook (we verify JWT manually).
   fastify.get<{ Params: { worldId: string; sessionId: string } }>(
     "/:worldId/auditions/:sessionId/realtime-ws",
-    { websocket: true },
-    async (socket, request) => {
+    { websocket: true, preHandler: [] },
+    (socket, request) => {
       const { worldId, sessionId } = request.params;
 
       // Auth: verify JWT from query param
@@ -166,73 +167,82 @@ export async function auditionRoutes(fastify: FastifyInstance) {
         return;
       }
 
-      // Check permissions
-      const role = await getEffectiveRole(userId, userRole, worldId);
-      if (!role || role === "viewer") {
-        socket.close(4003, "Access denied");
-        return;
-      }
+      // azureWs will be set once async setup completes
+      let azureWs: WebSocket | null = null;
 
-      // Load session
-      let session: AuditionSession;
-      try {
-        const { resource } = await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).read<AuditionSession>();
-        if (!resource || resource.mode !== "voice") {
-          socket.close(4004, "Session not found or not voice mode");
-          return;
-        }
-        session = resource;
-      } catch {
-        socket.close(4004, "Session not found");
-        return;
-      }
+      // Attach message handlers synchronously (required by @fastify/websocket)
+      // Messages are buffered/forwarded once the Azure WS is ready.
+      const pendingMessages: string[] = [];
 
-      // Connect to Azure OpenAI Realtime API
-      let azureWs: WebSocket;
-      try {
-        azureWs = connectToRealtimeWs(session.model, "ash", session.compiledSystemPrompt);
-      } catch (err) {
-        request.log.error({ err }, "Failed to connect to Azure Realtime WS");
-        socket.close(4502, "Azure connection failed");
-        return;
-      }
-
-      // Relay: browser → Azure
       socket.on("message", (data) => {
-        if (azureWs.readyState === WebSocket.OPEN) {
-          azureWs.send(typeof data === "string" ? data : data.toString());
+        const msg = typeof data === "string" ? data : data.toString();
+        if (azureWs && azureWs.readyState === WebSocket.OPEN) {
+          azureWs.send(msg);
+        } else {
+          pendingMessages.push(msg);
         }
       });
 
-      // Relay: Azure → browser
-      azureWs.on("message", (data) => {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(typeof data === "string" ? data : data.toString());
-        }
-      });
-
-      // Handle close
       socket.on("close", () => {
-        azureWs.close();
-      });
-
-      azureWs.on("close", () => {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.close(1000, "Azure connection closed");
-        }
-      });
-
-      azureWs.on("error", (err) => {
-        request.log.error({ err }, "Azure Realtime WS error");
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.close(1011, "Azure connection error");
-        }
+        azureWs?.close();
       });
 
       socket.on("error", (err) => {
         request.log.error({ err }, "Client WS error");
-        azureWs.close();
+        azureWs?.close();
       });
+
+      // Async setup: check permissions, load session, connect to Azure
+      (async () => {
+        try {
+          const role = await getEffectiveRole(userId, userRole, worldId);
+          if (!role || role === "viewer") {
+            socket.close(4003, "Access denied");
+            return;
+          }
+
+          const { resource } = await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).read<AuditionSession>();
+          if (!resource || resource.mode !== "voice") {
+            socket.close(4004, "Session not found or not voice mode");
+            return;
+          }
+          const session = resource;
+
+          azureWs = connectToRealtimeWs(session.model, "ash", session.compiledSystemPrompt);
+
+          azureWs.on("open", () => {
+            // Flush any messages that arrived while connecting
+            for (const msg of pendingMessages) {
+              azureWs!.send(msg);
+            }
+            pendingMessages.length = 0;
+          });
+
+          azureWs.on("message", (data) => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(typeof data === "string" ? data : data.toString());
+            }
+          });
+
+          azureWs.on("close", () => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.close(1000, "Azure connection closed");
+            }
+          });
+
+          azureWs.on("error", (err) => {
+            request.log.error({ err }, "Azure Realtime WS error");
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.close(1011, "Azure connection error");
+            }
+          });
+        } catch (err) {
+          request.log.error({ err }, "Realtime WS setup failed");
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.close(4500, "Setup failed");
+          }
+        }
+      })();
     }
   );
 
