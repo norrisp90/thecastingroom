@@ -1470,6 +1470,11 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
   const [assistantTranscript, setAssistantTranscript] = useState("");
   const [error, setError] = useState("");
   const [micActive, setMicActive] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
+  const [resetting, setResetting] = useState(false);
+  const [sessionActorId, setSessionActorId] = useState("");
+  const [sessionRoleId, setSessionRoleId] = useState("");
+  const [sessionSceneSetup, setSessionSceneSetup] = useState("");
 
   const handleAmplitude = useCallback((rms: number) => {
     rendererRef.current?.setAmplitude(rms);
@@ -1529,11 +1534,16 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
         rendererRef.current = r;
       }
 
-      // Load actor name for display
+      // Load session metadata + actor name for display
       try {
         const sessionRes = await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}`);
         if (sessionRes.ok) {
           const data = await sessionRes.json();
+          if (!cancelled) {
+            setSessionActorId(data.actorId || "");
+            setSessionRoleId(data.roleId || "");
+            setSessionSceneSetup(data.sceneSetup || "");
+          }
           try {
             const actorRes = await authFetch(`/api/worlds/${worldId}/actors/${data.actorId}`);
             if (actorRes.ok) { const actor = await actorRes.json(); if (!cancelled) setActorName(actor.name); }
@@ -1576,7 +1586,7 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
       rendererRef.current?.destroy();
       rendererRef.current = null;
     };
-  }, [worldId, sessionId, handleStateChange, handleSpeechStarted, handleSpeechStopped, handleResponseStarted, handleResponseDone, handleTranscriptDelta, handleAmplitude, handleError]);
+  }, [worldId, sessionId, resetKey, handleStateChange, handleSpeechStarted, handleSpeechStopped, handleResponseStarted, handleResponseDone, handleTranscriptDelta, handleAmplitude, handleError]);
 
   // Handle resize
   useEffect(() => {
@@ -1584,6 +1594,90 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  async function handleReset() {
+    if (!confirm("Reset this voice session? Conversation history will be cleared and the system prompt will be regenerated from the latest actor/role data.")) return;
+    setResetting(true);
+    setError("");
+
+    // Save transcripts before reset
+    const transcripts = sessionRef.current?.getTranscripts() || [];
+    if (transcripts.length > 0) {
+      try {
+        await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}/transcript`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turns: transcripts }),
+        });
+      } catch { /* best effort */ }
+    }
+
+    // Disconnect current WS
+    sessionRef.current?.disconnect();
+    sessionRef.current = null;
+
+    // Call backend reset
+    try {
+      const res = await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}/reset`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setError(typeof data?.error === "string" ? data.error : "Failed to reset session");
+        setResetting(false);
+        return;
+      }
+    } catch {
+      setError("Unable to connect to server.");
+      setResetting(false);
+      return;
+    }
+
+    // Clear UI state and trigger reconnect via resetKey
+    setUserTranscript("");
+    setAssistantTranscript("");
+    setConnectionState("idle");
+    setMicActive(false);
+    setResetting(false);
+    setResetKey((k) => k + 1);
+  }
+
+  async function handleNewSession() {
+    if (!sessionActorId) return;
+
+    // Save transcripts before leaving
+    const transcripts = sessionRef.current?.getTranscripts() || [];
+    if (transcripts.length > 0) {
+      try {
+        await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}/transcript`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turns: transcripts }),
+        });
+      } catch { /* best effort */ }
+    }
+
+    sessionRef.current?.disconnect();
+    sessionRef.current = null;
+
+    // Create a new voice audition session with same actor/role/scene
+    try {
+      const body: Record<string, string> = { actorId: sessionActorId, mode: "voice", sceneSetup: sessionSceneSetup };
+      if (sessionRoleId) body.roleId = sessionRoleId;
+      const res = await authFetch(`/api/worlds/${worldId}/auditions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setError(typeof data?.error === "string" ? data.error : "Failed to create new session");
+        return;
+      }
+      const newSession = await res.json();
+      window.location.href = `/worlds/${worldId}/auditions/${newSession.id}`;
+    } catch {
+      setError("Unable to connect to server.");
+    }
+  }
 
   async function handleEnd() {
     // Save transcripts
@@ -1623,9 +1717,17 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
               {connectionState === "idle" && "Initializing…"}
             </p>
           </div>
-          <Button variant="outline" size="sm" className="pointer-events-auto bg-black/50 border-white/20 text-white hover:bg-white/10" onClick={handleEnd}>
-            End Audition
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="pointer-events-auto bg-black/50 border-white/20 text-white hover:bg-white/10" onClick={handleReset} disabled={resetting || connectionState === "connecting"}>
+              {resetting ? "Resetting…" : "Reset"}
+            </Button>
+            <Button variant="outline" size="sm" className="pointer-events-auto bg-black/50 border-white/20 text-white hover:bg-white/10" onClick={handleNewSession} disabled={!sessionActorId}>
+              New Session
+            </Button>
+            <Button variant="outline" size="sm" className="pointer-events-auto bg-black/50 border-white/20 text-white hover:bg-white/10" onClick={handleEnd}>
+              End Audition
+            </Button>
+          </div>
         </div>
 
         {/* Mic indicator */}
