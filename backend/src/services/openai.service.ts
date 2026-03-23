@@ -37,7 +37,7 @@ export function connectToRealtimeWs(
   }
 
   const baseWss = endpoint.replace(/\/$/, "").replace(/^https:/, "wss:");
-  const url = `${baseWss}/openai/v1/realtime?model=${encodeURIComponent(model)}`;
+  const url = `${baseWss}/openai/realtime?api-version=2025-04-01-preview&deployment=${encodeURIComponent(model)}`;
 
   const ws = new WebSocket(url, {
     headers: { "api-key": apiKey },
