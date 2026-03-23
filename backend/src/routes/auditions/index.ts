@@ -80,6 +80,12 @@ export async function auditionRoutes(fastify: FastifyInstance) {
     }
     const systemPrompt = compileSystemPrompt(actor, loadedRole, result.data.sceneSetup || undefined);
 
+    // Pick a voice for Realtime API based on actor gender
+    const genderLower = (actor.identity.genderIdentity || "").toLowerCase();
+    const realtimeVoice = genderLower.includes("female") || genderLower.includes("woman")
+      ? "shimmer"
+      : "echo";
+
     const now = new Date().toISOString();
     const session: AuditionSession = {
       id: crypto.randomUUID(),
@@ -90,6 +96,7 @@ export async function auditionRoutes(fastify: FastifyInstance) {
       compiledSystemPrompt: systemPrompt,
       model: result.data.mode === "voice" ? "gpt-realtime-mini" : result.data.model,
       mode: result.data.mode,
+      realtimeVoice: result.data.mode === "voice" ? realtimeVoice : undefined,
       turns: [],
       createdBy: request.user!.userId,
       createdAt: now,
@@ -217,7 +224,7 @@ export async function auditionRoutes(fastify: FastifyInstance) {
           }
           const session = resource;
 
-          azureWs = connectToRealtimeWs(session.model, "ash", session.compiledSystemPrompt);
+          azureWs = connectToRealtimeWs(session.model, session.realtimeVoice || "echo", session.compiledSystemPrompt);
           request.log.info({ model: session.model }, "Connecting to Azure Realtime WS");
 
           azureWs.on("open", () => {

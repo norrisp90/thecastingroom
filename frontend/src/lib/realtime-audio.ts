@@ -44,6 +44,11 @@ export class RealtimeAudioSession {
   // Track whether the server has an active response in flight
   private responseActive = false;
 
+  // Track current response output item for truncation on interruption
+  private currentResponseItemId: string | null = null;
+  private responseAudioMs = 0;
+  private responseAudioStartTime = 0;
+
   // Accumulated transcripts
   private userTranscriptBuffer = "";
   private assistantTranscriptBuffer = "";
@@ -232,8 +237,16 @@ export class RealtimeAudioSession {
           }
           break;
 
+        case "response.output_item.added":
+          if (event.item?.id) {
+            this.currentResponseItemId = event.item.id;
+            this.responseAudioMs = 0;
+          }
+          break;
+
         case "response.created":
           this.responseActive = true;
+          this.responseAudioStartTime = this.playbackCtx?.currentTime ?? 0;
           this.callbacks.onResponseStarted();
           this.assistantTranscriptBuffer = "";
           break;
@@ -278,6 +291,9 @@ export class RealtimeAudioSession {
     const startAt = Math.max(now, this.playbackTime);
     source.start(startAt);
     this.playbackTime = startAt + buffer.duration;
+
+    // Accumulate audio duration in ms for truncation
+    this.responseAudioMs += Math.round((float32.length / REALTIME_SAMPLE_RATE) * 1000);
 
     // Track source for interruption stop
     this.activeSources.push(source);
@@ -330,8 +346,15 @@ export class RealtimeAudioSession {
     }, 33); // ~30fps
   }
 
-  /** Stop all in-flight playback and cancel the server response */
+  /** Stop all in-flight playback and truncate the server conversation per docs */
   private handleLocalInterruption() {
+    // Calculate how much audio was actually played before interruption
+    let audioEndMs = 0;
+    if (this.playbackCtx) {
+      const playedSeconds = Math.max(0, this.playbackCtx.currentTime - this.responseAudioStartTime);
+      audioEndMs = Math.round(playedSeconds * 1000);
+    }
+
     // Stop all scheduled audio sources
     for (const src of this.activeSources) {
       try { src.stop(); } catch { /* already ended */ }
@@ -343,11 +366,19 @@ export class RealtimeAudioSession {
       this.playbackTime = this.playbackCtx.currentTime;
     }
 
-    // Cancel the server's in-progress response (only if one is active)
-    if (this.responseActive) {
-      this.sendEvent({ type: "response.cancel" });
-      this.responseActive = false;
+    // Send conversation.item.truncate per docs to remove unplayed audio
+    // The server auto-cancels the response when VAD detects speech
+    if (this.currentResponseItemId) {
+      this.sendEvent({
+        type: "conversation.item.truncate",
+        item_id: this.currentResponseItemId,
+        content_index: 0,
+        audio_end_ms: audioEndMs,
+      });
     }
+    this.responseActive = false;
+    this.currentResponseItemId = null;
+    this.responseAudioMs = 0;
 
     // Resume mic forwarding immediately
     this.micForwardingPaused = false;

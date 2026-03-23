@@ -190,6 +190,7 @@ export interface AuditionSession {
   compiledSystemPrompt: string;
   model: string;
   mode?: "chat" | "voice";
+  realtimeVoice?: string;
   turns: ConversationTurn[];
   createdBy: string;
   createdAt: string;
