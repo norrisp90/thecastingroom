@@ -38,7 +38,12 @@ export async function auditionRoutes(fastify: FastifyInstance) {
   const roleService = new RoleService(fastify.cosmos);
   const worldService = new WorldService(fastify.cosmos);
 
-  fastify.addHook("preHandler", fastify.authenticate);
+  // Auth hook for all routes EXCEPT WebSocket upgrades.
+  // WS routes handle auth manually via query param token since browsers can't set headers on WS.
+  fastify.addHook("preHandler", async (request, reply) => {
+    if (request.headers.upgrade?.toLowerCase() === "websocket") return;
+    return fastify.authenticate(request, reply);
+  });
 
   // Helper to get effective role (admin bypass)
   async function getEffectiveRole(userId: string, userRole: string, worldId: string) {
