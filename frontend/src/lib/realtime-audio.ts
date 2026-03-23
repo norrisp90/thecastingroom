@@ -256,8 +256,10 @@ export class RealtimeAudioSession {
 
         case "error": {
           const errMsg: string = event.error?.message || "Realtime API error";
-          // Suppress benign cancellation errors (no active response to cancel)
-          if (errMsg.toLowerCase().includes("cancellation failed")) break;
+          const lower = errMsg.toLowerCase();
+          // Suppress benign errors that don't affect functionality
+          if (lower.includes("cancellation failed")) break;
+          if (lower.includes("already shorter than")) break;
           this.callbacks.onError(errMsg);
           break;
         }
@@ -336,11 +338,13 @@ export class RealtimeAudioSession {
 
   /** Stop all in-flight playback and truncate the server conversation per docs */
   private handleLocalInterruption() {
-    // Calculate how much audio was actually played before interruption
+    // Calculate how much audio was actually played before interruption.
+    // Clamp to responseAudioMs so we never ask the server to truncate beyond
+    // the audio it actually sent (wall-clock includes pre-audio latency).
     let audioEndMs = 0;
     if (this.audioCtx) {
       const playedSeconds = Math.max(0, this.audioCtx.currentTime - this.responseAudioStartTime);
-      audioEndMs = Math.round(playedSeconds * 1000);
+      audioEndMs = Math.min(Math.round(playedSeconds * 1000), this.responseAudioMs);
     }
 
     // Stop all scheduled audio sources
