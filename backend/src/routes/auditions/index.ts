@@ -395,4 +395,63 @@ export async function auditionRoutes(fastify: FastifyInstance) {
 
     return session.turns[turnIndex];
   });
+
+  // Reset audition — clear chat history and recompile system prompt from latest actor/role data
+  fastify.post<{ Params: { worldId: string; sessionId: string } }>("/:worldId/auditions/:sessionId/reset", async (request, reply) => {
+    const { worldId, sessionId } = request.params;
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
+    if (!role || role === "viewer") {
+      return reply.status(403).send({ error: "Viewers cannot reset auditions" });
+    }
+
+    let session: AuditionSession;
+    try {
+      const { resource } = await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).read<AuditionSession>();
+      if (!resource) {
+        return reply.status(404).send({ error: "Session not found" });
+      }
+      session = resource;
+    } catch {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    // Re-fetch actor with latest data
+    const actor = await actorService.getById(worldId, session.actorId);
+    if (!actor) {
+      return reply.status(404).send({ error: "Actor has been deleted — cannot reset this audition" });
+    }
+
+    // Re-fetch role if one was set (if deleted, proceed without it)
+    let loadedRole = undefined;
+    if (session.roleId) {
+      loadedRole = await roleService.getById(worldId, session.roleId) ?? undefined;
+      if (!loadedRole) {
+        session.roleId = undefined;
+      }
+    }
+
+    // Recompile prompt with latest actor/role data
+    session.compiledSystemPrompt = compileSystemPrompt(actor, loadedRole, session.sceneSetup || undefined);
+    session.turns = [];
+    session.updatedAt = new Date().toISOString();
+
+    await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).replace(session);
+    return session;
+  });
+
+  // Delete audition session
+  fastify.delete<{ Params: { worldId: string; sessionId: string } }>("/:worldId/auditions/:sessionId", async (request, reply) => {
+    const { worldId, sessionId } = request.params;
+    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
+    if (!role || role === "viewer") {
+      return reply.status(403).send({ error: "Viewers cannot delete auditions" });
+    }
+
+    try {
+      await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).delete();
+      return reply.status(204).send();
+    } catch {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+  });
 }

@@ -575,18 +575,36 @@ function WorldDetail({ worldId }: { worldId: string }) {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {auditions.map((a) => (
-                <a key={a.id} href={`/worlds/${worldId}/auditions/${a.id}`}>
-                  <Card className="hover:border-secondary/50 transition-colors cursor-pointer h-full">
-                    <CardHeader>
-                      <CardTitle className="text-lg">{actorMap[a.actorId] || "Unknown Actor"}</CardTitle>
-                      <CardDescription>
-                        {a.roleId && roleMap[a.roleId] && <span className="mr-2">as {roleMap[a.roleId]}</span>}
-                        {a.turnCount} {a.turnCount === 1 ? "message" : "messages"}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent><p className="text-xs text-muted-foreground">{new Date(a.updatedAt || a.createdAt).toLocaleDateString()}</p></CardContent>
-                  </Card>
-                </a>
+                <div key={a.id} className="relative group">
+                  <a href={`/worlds/${worldId}/auditions/${a.id}`}>
+                    <Card className="hover:border-secondary/50 transition-colors cursor-pointer h-full">
+                      <CardHeader>
+                        <CardTitle className="text-lg">{actorMap[a.actorId] || "Unknown Actor"}</CardTitle>
+                        <CardDescription>
+                          {a.roleId && roleMap[a.roleId] && <span className="mr-2">as {roleMap[a.roleId]}</span>}
+                          {a.turnCount} {a.turnCount === 1 ? "message" : "messages"}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent><p className="text-xs text-muted-foreground">{new Date(a.updatedAt || a.createdAt).toLocaleDateString()}</p></CardContent>
+                    </Card>
+                  </a>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-destructive hover:text-destructive/80 bg-background/80 rounded px-2 py-1"
+                      onClick={async (e) => {
+                        e.preventDefault(); e.stopPropagation();
+                        if (!confirm("Delete this audition permanently?")) return;
+                        try {
+                          const res = await authFetch(`/api/worlds/${worldId}/auditions/${a.id}`, { method: "DELETE" });
+                          if (res.ok || res.status === 204) {
+                            setAuditions((prev) => prev.filter((x) => x.id !== a.id));
+                          }
+                        } catch { /* ignore */ }
+                      }}
+                    >Delete</button>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -1668,6 +1686,8 @@ function AuditionChat({ worldId, sessionId }: { worldId: string; sessionId: stri
   const [error, setError] = useState("");
   const [ratingTurn, setRatingTurn] = useState<number | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -1776,6 +1796,38 @@ function AuditionChat({ worldId, sessionId }: { worldId: string; sessionId: stri
     } catch { /* ignore */ }
   }
 
+  async function handleReset() {
+    if (!confirm("Reset this audition? All chat history will be cleared and the system prompt will be regenerated from the latest actor/role data.")) return;
+    setResetting(true); setError("");
+    try {
+      const res = await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}/reset`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setError(typeof data?.error === "string" ? data.error : "Failed to reset audition");
+        return;
+      }
+      const updated = await res.json();
+      setSession(updated);
+      setTurns([]);
+    } catch { setError("Unable to connect to server."); }
+    finally { setResetting(false); }
+  }
+
+  async function handleDelete() {
+    if (!confirm("Delete this audition permanently? This cannot be undone.")) return;
+    setDeleting(true); setError("");
+    try {
+      const res = await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 204) {
+        const data = await res.json().catch(() => null);
+        setError(typeof data?.error === "string" ? data.error : "Failed to delete audition");
+        return;
+      }
+      window.location.href = `/worlds/${worldId}`;
+    } catch { setError("Unable to connect to server."); }
+    finally { setDeleting(false); }
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen flex flex-col">
@@ -1808,6 +1860,10 @@ function AuditionChat({ worldId, sessionId }: { worldId: string; sessionId: stri
           {session?.sceneSetup && <p className="text-xs text-muted-foreground line-clamp-1 max-w-xl">{session.sceneSetup}</p>}
         </div>
         <div className="flex items-center gap-3">
+          {turns.length > 0 && (
+            <Button variant="outline" size="sm" onClick={handleReset} disabled={resetting || sending}>{resetting ? "Resetting…" : "Reset"}</Button>
+          )}
+          <Button variant="outline" size="sm" className="text-destructive border-destructive/50 hover:bg-destructive/10" onClick={handleDelete} disabled={deleting || sending}>{deleting ? "Deleting…" : "Delete"}</Button>
           {session?.compiledSystemPrompt && (
             <Button variant="outline" size="sm" onClick={() => setShowPrompt(true)}>View Prompt</Button>
           )}
