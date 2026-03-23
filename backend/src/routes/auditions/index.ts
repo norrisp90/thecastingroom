@@ -146,6 +146,7 @@ export async function auditionRoutes(fastify: FastifyInstance) {
     { websocket: true, preHandler: [] },
     (socket, request) => {
       const { worldId, sessionId } = request.params;
+      request.log.info({ worldId, sessionId }, "Realtime WS connection opened");
 
       // Auth: verify JWT from query param
       const url = new URL(request.url, `http://${request.headers.host}`);
@@ -167,7 +168,9 @@ export async function auditionRoutes(fastify: FastifyInstance) {
         const payload = jwt.verify(token, secret) as JwtPayload;
         userId = payload.userId;
         userRole = payload.role;
+        request.log.info({ userId }, "Realtime WS auth OK");
       } catch {
+        request.log.warn("Realtime WS auth failed — invalid token");
         socket.close(4001, "Invalid auth token");
         return;
       }
@@ -214,8 +217,10 @@ export async function auditionRoutes(fastify: FastifyInstance) {
           const session = resource;
 
           azureWs = connectToRealtimeWs(session.model, "ash", session.compiledSystemPrompt);
+          request.log.info({ model: session.model }, "Connecting to Azure Realtime WS");
 
           azureWs.on("open", () => {
+            request.log.info("Azure Realtime WS connected");
             // Flush any messages that arrived while connecting
             for (const msg of pendingMessages) {
               azureWs!.send(msg);
