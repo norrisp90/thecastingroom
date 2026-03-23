@@ -245,7 +245,9 @@ export async function auditionRoutes(fastify: FastifyInstance) {
         reply.raw.write(`data: ${JSON.stringify({ chunk })}\n\n`);
       }
     } catch (err) {
-      reply.raw.write(`data: ${JSON.stringify({ error: "Stream failed" })}\n\n`);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      request.log.error({ err }, "OpenAI stream failed");
+      reply.raw.write(`data: ${JSON.stringify({ error: `Stream failed: ${errMsg}` })}\n\n`);
       reply.raw.end();
       return;
     }
