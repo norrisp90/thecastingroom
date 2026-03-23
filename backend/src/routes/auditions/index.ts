@@ -191,7 +191,8 @@ export async function auditionRoutes(fastify: FastifyInstance) {
         }
       });
 
-      socket.on("close", () => {
+      socket.on("close", (code, reason) => {
+        request.log.info({ code, reason: reason?.toString() }, "Client WS closed");
         azureWs?.close();
       });
 
@@ -229,12 +230,18 @@ export async function auditionRoutes(fastify: FastifyInstance) {
           });
 
           azureWs.on("message", (data) => {
+            const msg = typeof data === "string" ? data : data.toString();
+            try {
+              const evt = JSON.parse(msg);
+              request.log.info({ type: evt.type, error: evt.error }, "Azure→Client");
+            } catch {}
             if (socket.readyState === WebSocket.OPEN) {
-              socket.send(typeof data === "string" ? data : data.toString());
+              socket.send(msg);
             }
           });
 
-          azureWs.on("close", () => {
+          azureWs.on("close", (code, reason) => {
+            request.log.info({ code, reason: reason?.toString() }, "Azure WS closed");
             if (socket.readyState === WebSocket.OPEN) {
               socket.close(1000, "Azure connection closed");
             }
