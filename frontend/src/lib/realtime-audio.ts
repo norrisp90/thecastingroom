@@ -22,8 +22,7 @@ const REALTIME_SAMPLE_RATE = 24000;
 export class RealtimeAudioSession {
   private ws: WebSocket | null = null;
   private localStream: MediaStream | null = null;
-  private captureCtx: AudioContext | null = null;
-  private playbackCtx: AudioContext | null = null;
+  private audioCtx: AudioContext | null = null;
   private captureWorklet: AudioWorkletNode | null = null;
   private amplitudeIntervalId: ReturnType<typeof setInterval> | null = null;
   private callbacks: RealtimeCallbacks;
@@ -37,9 +36,12 @@ export class RealtimeAudioSession {
   private micForwardingPaused = false;
   private localRmsAboveThreshold = 0;
   private resumeForwardingTimeout: ReturnType<typeof setTimeout> | null = null;
-  private static readonly RMS_THRESHOLD = 0.1;
-  private static readonly RMS_FRAMES_REQUIRED = 3;
-  private static readonly RESUME_GRACE_MS = 300;
+  // Echo through speakers is typically 0.05–0.15 RMS at the mic; real speech is 0.2–0.6
+  private static readonly RMS_THRESHOLD = 0.3;
+  private static readonly RMS_FRAMES_REQUIRED = 6;
+  private static readonly RESUME_GRACE_MS = 800;
+  // After stopping playback on interruption, keep mic muted to let echo/reverb decay
+  private static readonly POST_INTERRUPT_MUTE_MS = 250;
 
   // Track whether the server has an active response in flight
   private responseActive = false;
@@ -78,9 +80,10 @@ export class RealtimeAudioSession {
         },
       });
 
-      // Set up capture AudioContext
-      this.captureCtx = new AudioContext({ sampleRate: REALTIME_SAMPLE_RATE });
-      const source = this.captureCtx.createMediaStreamSource(this.localStream);
+      // Single AudioContext for both capture and playback — improves browser AEC
+      // (echo cancellation correlates playback output with mic input in one context)
+      this.audioCtx = new AudioContext({ sampleRate: REALTIME_SAMPLE_RATE });
+      const source = this.audioCtx.createMediaStreamSource(this.localStream);
 
       // AudioWorklet for mic capture → PCM16 base64
       const processorCode = `
@@ -97,10 +100,10 @@ export class RealtimeAudioSession {
       `;
       const blob = new Blob([processorCode], { type: "application/javascript" });
       const blobUrl = URL.createObjectURL(blob);
-      await this.captureCtx.audioWorklet.addModule(blobUrl);
+      await this.audioCtx.audioWorklet.addModule(blobUrl);
       URL.revokeObjectURL(blobUrl);
 
-      this.captureWorklet = new AudioWorkletNode(this.captureCtx, "capture-processor");
+      this.captureWorklet = new AudioWorkletNode(this.audioCtx, "capture-processor");
       this.captureWorklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
         if (this.ws?.readyState !== WebSocket.OPEN) return;
 
@@ -111,12 +114,9 @@ export class RealtimeAudioSession {
             this.localRmsAboveThreshold++;
             if (this.localRmsAboveThreshold >= RealtimeAudioSession.RMS_FRAMES_REQUIRED) {
               this.handleLocalInterruption();
-              // Forward this frame since it's real speech
-              const pcm16 = float32ToPcm16Base64(ev.data);
-              this.ws.send(JSON.stringify({
-                type: "input_audio_buffer.append",
-                audio: pcm16,
-              }));
+              // Don't forward this frame — it was captured while AI audio was
+              // still playing and likely contains echo. Clean audio will flow
+              // after the post-interruption mute expires.
             }
           } else {
             this.localRmsAboveThreshold = 0;
@@ -132,11 +132,9 @@ export class RealtimeAudioSession {
       };
       source.connect(this.captureWorklet);
       // AudioWorklet needs a destination to keep processing
-      this.captureWorklet.connect(this.captureCtx.destination);
+      this.captureWorklet.connect(this.audioCtx.destination);
 
-      // Set up playback AudioContext at 24kHz
-      this.playbackCtx = new AudioContext({ sampleRate: REALTIME_SAMPLE_RATE });
-      this.playbackTime = this.playbackCtx.currentTime;
+      this.playbackTime = this.audioCtx.currentTime;
 
       // Set up amplitude analysis on the playback context
       this.setupAmplitudeAnalysis();
@@ -246,7 +244,7 @@ export class RealtimeAudioSession {
 
         case "response.created":
           this.responseActive = true;
-          this.responseAudioStartTime = this.playbackCtx?.currentTime ?? 0;
+          this.responseAudioStartTime = this.audioCtx?.currentTime ?? 0;
           this.callbacks.onResponseStarted();
           this.assistantTranscriptBuffer = "";
           break;
@@ -271,7 +269,7 @@ export class RealtimeAudioSession {
 
   /** Decode base64 PCM16 and schedule for gapless playback */
   private playAudioChunk(base64Pcm16: string) {
-    if (!this.playbackCtx) return;
+    if (!this.audioCtx) return;
 
     const pcm16 = base64ToInt16Array(base64Pcm16);
     const float32 = new Float32Array(pcm16.length);
@@ -279,15 +277,15 @@ export class RealtimeAudioSession {
       float32[i] = pcm16[i] / 32768;
     }
 
-    const buffer = this.playbackCtx.createBuffer(1, float32.length, REALTIME_SAMPLE_RATE);
+    const buffer = this.audioCtx.createBuffer(1, float32.length, REALTIME_SAMPLE_RATE);
     buffer.getChannelData(0).set(float32);
 
-    const source = this.playbackCtx.createBufferSource();
+    const source = this.audioCtx.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.playbackCtx.destination);
+    source.connect(this.audioCtx.destination);
 
     // Schedule after previous chunk for gapless playback
-    const now = this.playbackCtx.currentTime;
+    const now = this.audioCtx.currentTime;
     const startAt = Math.max(now, this.playbackTime);
     source.start(startAt);
     this.playbackTime = startAt + buffer.duration;
@@ -315,21 +313,11 @@ export class RealtimeAudioSession {
   }
 
   private setupAmplitudeAnalysis() {
-    if (!this.playbackCtx) return;
-
-    // Use an AnalyserNode on the playback destination to measure output amplitude
-    const analyser = this.playbackCtx.createAnalyser();
-    analyser.fftSize = 256;
-
-    // We can't tap into destination directly, but we measure from scheduled sources
-    // via a gain node splitter. For simplicity, estimate from playback timing.
-    // Instead, measure from the capture stream (mic) for input and use playback timing for output.
-    // For the shadow renderer, we use a combined approach:
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    if (!this.audioCtx) return;
 
     this.amplitudeIntervalId = setInterval(() => {
       // If playback is actively happening, provide non-zero amplitude
-      if (this.playbackCtx && this.playbackTime > this.playbackCtx.currentTime) {
+      if (this.audioCtx && this.playbackTime > this.audioCtx.currentTime) {
         // Audio is playing — estimate amplitude
         this.callbacks.onAmplitude(0.3 + Math.random() * 0.2);
       } else {
@@ -350,8 +338,8 @@ export class RealtimeAudioSession {
   private handleLocalInterruption() {
     // Calculate how much audio was actually played before interruption
     let audioEndMs = 0;
-    if (this.playbackCtx) {
-      const playedSeconds = Math.max(0, this.playbackCtx.currentTime - this.responseAudioStartTime);
+    if (this.audioCtx) {
+      const playedSeconds = Math.max(0, this.audioCtx.currentTime - this.responseAudioStartTime);
       audioEndMs = Math.round(playedSeconds * 1000);
     }
 
@@ -362,8 +350,8 @@ export class RealtimeAudioSession {
     this.activeSources = [];
 
     // Reset playback time
-    if (this.playbackCtx) {
-      this.playbackTime = this.playbackCtx.currentTime;
+    if (this.audioCtx) {
+      this.playbackTime = this.audioCtx.currentTime;
     }
 
     // Send conversation.item.truncate per docs to remove unplayed audio
@@ -380,13 +368,18 @@ export class RealtimeAudioSession {
     this.currentResponseItemId = null;
     this.responseAudioMs = 0;
 
-    // Resume mic forwarding immediately
-    this.micForwardingPaused = false;
+    // Keep mic ducked briefly to let speaker echo/reverb decay before resuming.
+    // The server already detected speech via VAD, so it knows the user is talking.
+    // We schedule mic resume after a short mute to avoid feeding echo back in.
     this.localRmsAboveThreshold = 0;
     if (this.resumeForwardingTimeout) {
       clearTimeout(this.resumeForwardingTimeout);
-      this.resumeForwardingTimeout = null;
     }
+    this.resumeForwardingTimeout = setTimeout(() => {
+      this.micForwardingPaused = false;
+      this.localRmsAboveThreshold = 0;
+      this.resumeForwardingTimeout = null;
+    }, RealtimeAudioSession.POST_INTERRUPT_MUTE_MS);
 
     // Notify UI
     this.callbacks.onSpeechStarted();
@@ -419,14 +412,9 @@ export class RealtimeAudioSession {
       this.captureWorklet = null;
     }
 
-    if (this.captureCtx) {
-      this.captureCtx.close().catch(() => {});
-      this.captureCtx = null;
-    }
-
-    if (this.playbackCtx) {
-      this.playbackCtx.close().catch(() => {});
-      this.playbackCtx = null;
+    if (this.audioCtx) {
+      this.audioCtx.close().catch(() => {});
+      this.audioCtx = null;
     }
 
     if (this.ws) {
