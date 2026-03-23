@@ -1,4 +1,5 @@
 import { AzureOpenAI } from "openai";
+import WebSocket from "ws";
 
 let client: AzureOpenAI | null = null;
 
@@ -21,53 +22,41 @@ function getClient(): AzureOpenAI {
 }
 
 /**
- * Create an ephemeral Realtime API token via Azure OpenAI REST API (legacy protocol).
- * Uses /openai/realtimeapi/sessions with api-key auth.
- * The API key stays server-side; the browser gets a short-lived ephemeral key.
+ * Open a WebSocket to Azure OpenAI Realtime API and configure the session.
+ * The api-key stays server-side. Backend relays messages between browser and Azure.
  */
-export async function createRealtimeToken(
+export function connectToRealtimeWs(
   model: string,
   voice: string,
   instructions: string
-): Promise<{ token: string; endpoint: string; model: string; expiresAt: string }> {
+): WebSocket {
   const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
   const apiKey = process.env.AZURE_OPENAI_API_KEY;
   if (!endpoint || !apiKey) {
     throw new Error("AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY are required");
   }
 
-  const baseUrl = endpoint.replace(/\/$/, "");
-  const url = `${baseUrl}/openai/realtimeapi/sessions?api-version=2025-04-01-preview`;
+  const baseWss = endpoint.replace(/\/$/, "").replace(/^https:/, "wss:");
+  const url = `${baseWss}/openai/realtime?api-version=2024-10-01-preview&deployment=${encodeURIComponent(model)}`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "api-key": apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      voice,
-      instructions,
-      input_audio_transcription: { model: "whisper-1" },
-      turn_detection: { type: "server_vad" },
-    }),
+  const ws = new WebSocket(url, {
+    headers: { "api-key": apiKey },
   });
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Realtime session creation failed (${res.status}): ${errorBody}`);
-  }
+  ws.on("open", () => {
+    ws.send(JSON.stringify({
+      type: "session.update",
+      session: {
+        modalities: ["audio", "text"],
+        voice,
+        instructions,
+        input_audio_transcription: { model: "whisper-1" },
+        turn_detection: { type: "server_vad" },
+      },
+    }));
+  });
 
-  const data = await res.json() as { id?: string; client_secret?: { value?: string; expires_at?: number } };
-  return {
-    token: data.client_secret?.value ?? "",
-    endpoint: baseUrl,
-    model,
-    expiresAt: data.client_secret?.expires_at
-      ? new Date(data.client_secret.expires_at * 1000).toISOString()
-      : new Date(Date.now() + 60_000).toISOString(),
-  };
+  return ws;
 }
 
 export async function chatCompletion(

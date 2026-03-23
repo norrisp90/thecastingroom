@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 import { authFetch, getUser, logout } from "@/lib/auth";
 import { LivingShadowRenderer, type ShadowState } from "@/lib/living-shadow";
-import { RealtimeAudioSession, type RealtimeTokenData } from "@/lib/realtime-audio";
+import { RealtimeAudioSession } from "@/lib/realtime-audio";
 
 /* ───────────────────────────────────────────
    ROUTER — parse slug, delegate to sub-view
@@ -1520,7 +1520,6 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
   // Init renderer + connect
   useEffect(() => {
     let cancelled = false;
-    let sessionModel = "gpt-4o-realtime";
 
     async function start() {
       if (canvasRef.current && !rendererRef.current) {
@@ -1530,11 +1529,11 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
         rendererRef.current = r;
       }
 
+      // Load actor name for display
       try {
         const sessionRes = await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}`);
         if (sessionRes.ok) {
           const data = await sessionRes.json();
-          sessionModel = data.model || "gpt-4o-realtime";
           try {
             const actorRes = await authFetch(`/api/worlds/${worldId}/actors/${data.actorId}`);
             if (actorRes.ok) { const actor = await actorRes.json(); if (!cancelled) setActorName(actor.name); }
@@ -1545,14 +1544,11 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
       if (cancelled) return;
 
       try {
-        const tokenRes = await authFetch(`/api/worlds/${worldId}/auditions/${sessionId}/realtime-token`, { method: "POST" });
-        if (!tokenRes.ok) {
-          const errData = await tokenRes.json().catch(() => ({ error: "Token fetch failed" }));
-          if (!cancelled) setError(typeof errData.error === "string" ? errData.error : "Failed to get realtime token");
-          return;
-        }
-        const tokenData: RealtimeTokenData = await tokenRes.json();
-        if (cancelled) return;
+        // Build WebSocket URL to backend relay
+        const token = localStorage.getItem("accessToken") || "";
+        const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+        const wsBase = apiBase.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
+        const wsUrl = `${wsBase}/api/worlds/${worldId}/auditions/${sessionId}/realtime-ws?token=${encodeURIComponent(token)}`;
 
         const audio = new RealtimeAudioSession({
           onStateChange: handleStateChange,
@@ -1563,9 +1559,9 @@ function RealtimeAudition({ worldId, sessionId }: { worldId: string; sessionId: 
           onTranscriptDelta: handleTranscriptDelta,
           onAmplitude: handleAmplitude,
           onError: handleError,
-        }, sessionModel);
+        });
         sessionRef.current = audio;
-        await audio.connect(tokenData);
+        await audio.connect(wsUrl);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Connection failed");
       }

@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
 import { cosmosPlugin } from "./plugins/cosmos.js";
 import { authPlugin } from "./plugins/auth.js";
 import { authRoutes } from "./routes/auth/index.js";
@@ -20,6 +21,7 @@ async function start() {
     credentials: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
   });
+  await server.register(websocket);
   await server.register(cosmosPlugin);
   await server.register(authPlugin);
 

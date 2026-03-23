@@ -5,8 +5,11 @@ import { ActorService } from "../../services/actor.service.js";
 import { RoleService } from "../../services/role.service.js";
 import { WorldService } from "../../services/world.service.js";
 import { compileSystemPrompt } from "../../services/prompt.service.js";
-import { chatCompletion, chatCompletionStream, createRealtimeToken } from "../../services/openai.service.js";
+import { chatCompletion, chatCompletionStream, connectToRealtimeWs } from "../../services/openai.service.js";
 import type { AuditionSession, ConversationTurn } from "../../types/index.js";
+import jwt from "jsonwebtoken";
+import type { JwtPayload } from "../../plugins/auth.js";
+import WebSocket from "ws";
 
 const createAuditionSchema = z.object({
   actorId: z.string().uuid(),
@@ -129,42 +132,109 @@ export async function auditionRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Get ephemeral Realtime API token for voice auditions
-  fastify.post<{ Params: { worldId: string; sessionId: string } }>("/:worldId/auditions/:sessionId/realtime-token", async (request, reply) => {
-    const { worldId, sessionId } = request.params;
-    const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
-    if (!role || role === "viewer") {
-      return reply.status(403).send({ error: "Access denied" });
-    }
+  // WebSocket relay for voice auditions
+  // Browser connects here; backend opens a WS to Azure OpenAI and relays messages.
+  // Auth via query param since browser WebSocket API can't set headers.
+  fastify.get<{ Params: { worldId: string; sessionId: string } }>(
+    "/:worldId/auditions/:sessionId/realtime-ws",
+    { websocket: true },
+    async (socket, request) => {
+      const { worldId, sessionId } = request.params;
 
-    let session: AuditionSession;
-    try {
-      const { resource } = await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).read<AuditionSession>();
-      if (!resource) {
-        return reply.status(404).send({ error: "Session not found" });
+      // Auth: verify JWT from query param
+      const url = new URL(request.url, `http://${request.headers.host}`);
+      const token = url.searchParams.get("token");
+      if (!token) {
+        socket.close(4001, "Missing auth token");
+        return;
       }
-      session = resource;
-    } catch {
-      return reply.status(404).send({ error: "Session not found" });
-    }
 
-    if (session.mode !== "voice") {
-      return reply.status(400).send({ error: "Session is not a voice audition" });
-    }
+      const secret = process.env.JWT_SECRET;
+      if (!secret) {
+        socket.close(4001, "Server misconfigured");
+        return;
+      }
 
-    try {
-      const tokenData = await createRealtimeToken(
-        session.model,
-        "ash",
-        session.compiledSystemPrompt
-      );
-      return tokenData;
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      request.log.error({ err }, "Failed to create realtime token");
-      return reply.status(502).send({ error: `Realtime token creation failed: ${errMsg}` });
+      let userId: string;
+      let userRole: string;
+      try {
+        const payload = jwt.verify(token, secret) as JwtPayload;
+        userId = payload.userId;
+        userRole = payload.role;
+      } catch {
+        socket.close(4001, "Invalid auth token");
+        return;
+      }
+
+      // Check permissions
+      const role = await getEffectiveRole(userId, userRole, worldId);
+      if (!role || role === "viewer") {
+        socket.close(4003, "Access denied");
+        return;
+      }
+
+      // Load session
+      let session: AuditionSession;
+      try {
+        const { resource } = await fastify.cosmos.container("AuditionSessions").item(sessionId, worldId).read<AuditionSession>();
+        if (!resource || resource.mode !== "voice") {
+          socket.close(4004, "Session not found or not voice mode");
+          return;
+        }
+        session = resource;
+      } catch {
+        socket.close(4004, "Session not found");
+        return;
+      }
+
+      // Connect to Azure OpenAI Realtime API
+      let azureWs: WebSocket;
+      try {
+        azureWs = connectToRealtimeWs(session.model, "ash", session.compiledSystemPrompt);
+      } catch (err) {
+        request.log.error({ err }, "Failed to connect to Azure Realtime WS");
+        socket.close(4502, "Azure connection failed");
+        return;
+      }
+
+      // Relay: browser → Azure
+      socket.on("message", (data) => {
+        if (azureWs.readyState === WebSocket.OPEN) {
+          azureWs.send(typeof data === "string" ? data : data.toString());
+        }
+      });
+
+      // Relay: Azure → browser
+      azureWs.on("message", (data) => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(typeof data === "string" ? data : data.toString());
+        }
+      });
+
+      // Handle close
+      socket.on("close", () => {
+        azureWs.close();
+      });
+
+      azureWs.on("close", () => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.close(1000, "Azure connection closed");
+        }
+      });
+
+      azureWs.on("error", (err) => {
+        request.log.error({ err }, "Azure Realtime WS error");
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.close(1011, "Azure connection error");
+        }
+      });
+
+      socket.on("error", (err) => {
+        request.log.error({ err }, "Client WS error");
+        azureWs.close();
+      });
     }
-  });
+  );
 
   // Save transcript turns from a voice audition
   const transcriptSchema = z.object({
