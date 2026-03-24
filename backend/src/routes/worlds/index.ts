@@ -4,18 +4,18 @@ import { WorldService } from "../../services/world.service.js";
 
 const createWorldSchema = z.object({
   name: z.string().min(1).max(200),
-  description: z.string().max(2000).default(""),
+  description: z.string().max(10000).default(""),
   genre: z.string().max(100).default(""),
   defaultModel: z.string().default("gpt-41-mini"),
-  toneGuidelines: z.string().max(2000).default(""),
+  toneGuidelines: z.string().max(10000).default(""),
 });
 
 const updateWorldSchema = z.object({
   name: z.string().min(1).max(200).optional(),
-  description: z.string().max(2000).optional(),
+  description: z.string().max(10000).optional(),
   genre: z.string().max(100).optional(),
   defaultModel: z.string().optional(),
-  toneGuidelines: z.string().max(2000).optional(),
+  toneGuidelines: z.string().max(10000).optional(),
 });
 
 const inviteSchema = z.object({

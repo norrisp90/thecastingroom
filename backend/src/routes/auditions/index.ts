@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { ActorService } from "../../services/actor.service.js";
 import { RoleService } from "../../services/role.service.js";
 import { WorldService } from "../../services/world.service.js";
-import { compileSystemPrompt } from "../../services/prompt.service.js";
+import { getOrSynthesizePrompt } from "../../services/prompt.service.js";
 import { chatCompletion, chatCompletionStream, connectToRealtimeWs } from "../../services/openai.service.js";
 import type { AuditionSession, ConversationTurn } from "../../types/index.js";
 import jwt from "jsonwebtoken";
@@ -78,7 +78,22 @@ export async function auditionRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: "Role not found" });
       }
     }
-    const systemPrompt = compileSystemPrompt(actor, loadedRole, result.data.sceneSetup || undefined);
+    // Load world for synthesis context
+    const world = await worldService.getById(worldId) ?? undefined;
+
+    // Synthesise character prompt (AI-powered, cached)
+    const { systemPrompt, updatedCache } = await getOrSynthesizePrompt(
+      actor,
+      loadedRole,
+      result.data.sceneSetup || undefined,
+      world,
+      result.data.model
+    );
+
+    // Persist updated prompt cache on the actor if it changed
+    if (updatedCache) {
+      await actorService.update(worldId, actor.id, { promptCache: updatedCache });
+    }
 
     // Pick a voice for Realtime API based on actor gender
     const genderLower = (actor.identity.genderIdentity || "").toLowerCase();
@@ -534,8 +549,15 @@ export async function auditionRoutes(fastify: FastifyInstance) {
       }
     }
 
-    // Recompile prompt with latest actor/role data
-    session.compiledSystemPrompt = compileSystemPrompt(actor, loadedRole, session.sceneSetup || undefined);
+    // Recompile prompt with latest actor/role data via synthesis pipeline
+    const world = await worldService.getById(worldId) ?? undefined;
+    const { systemPrompt, updatedCache } = await getOrSynthesizePrompt(
+      actor, loadedRole, session.sceneSetup || undefined, world, session.model
+    );
+    if (updatedCache) {
+      await actorService.update(worldId, actor.id, { promptCache: updatedCache });
+    }
+    session.compiledSystemPrompt = systemPrompt;
     session.turns = [];
     session.updatedAt = new Date().toISOString();
 

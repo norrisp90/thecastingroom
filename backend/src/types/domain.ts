@@ -129,6 +129,18 @@ export interface ActorVoice {
   argumentationStyle: string;
 }
 
+/** Cached synthesized prompt for an actor+role combination */
+export interface PromptCacheEntry {
+  /** roleId (or "_none_" for no-role prompts) */
+  roleId: string;
+  /** SHA-256 hex hash of the character brief used for synthesis */
+  briefHash: string;
+  /** The synthesized system prompt text */
+  prompt: string;
+  /** When this entry was synthesized */
+  synthesizedAt: string;
+}
+
 export interface Actor {
   id: string;
   worldId: string;
@@ -141,6 +153,8 @@ export interface Actor {
   motivations: ActorMotivations;
   behavior: ActorBehavior;
   voice: ActorVoice;
+  /** Cached synthesized prompts keyed by roleId */
+  promptCache?: PromptCacheEntry[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;

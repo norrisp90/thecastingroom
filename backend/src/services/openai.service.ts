@@ -107,3 +107,27 @@ export async function* chatCompletionStream(
     }
   }
 }
+
+/**
+ * Synthesise a character system prompt from a meta-prompt + character brief.
+ * Uses lower temperature for consistency and higher token limit for richer output.
+ */
+export async function synthesisCompletion(
+  metaPrompt: string,
+  characterBrief: string,
+  model: string = "gpt-41-mini"
+): Promise<string> {
+  const openai = getClient();
+
+  const response = await openai.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: metaPrompt },
+      { role: "user", content: characterBrief },
+    ],
+    max_tokens: 4096,
+    temperature: 0.5,
+  });
+
+  return response.choices[0]?.message?.content ?? "";
+}

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ActorService } from "../../services/actor.service.js";
 import { RoleService } from "../../services/role.service.js";
 import { WorldService } from "../../services/world.service.js";
-import { compileSystemPrompt } from "../../services/prompt.service.js";
+import { compileSystemPrompt, getOrSynthesizePrompt } from "../../services/prompt.service.js";
 
 const identitySchema = z.object({
   fullName: z.string().default(""),
@@ -155,7 +155,8 @@ export async function actorRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: result.error.flatten().fieldErrors });
     }
 
-    const updated = await actorService.update(worldId, actorId, result.data);
+    // Clear synthesized prompt cache — actor data changed, cached prompts are stale
+    const updated = await actorService.update(worldId, actorId, { ...result.data, promptCache: [] });
     if (!updated) {
       return reply.status(404).send({ error: "Actor not found" });
     }
@@ -164,7 +165,7 @@ export async function actorRoutes(fastify: FastifyInstance) {
   });
 
   // Export compiled system prompt for actor
-  fastify.get<{ Params: { worldId: string; actorId: string }; Querystring: { roleId?: string; sceneSetup?: string } }>("/:worldId/actors/:actorId/export-prompt", async (request, reply) => {
+  fastify.get<{ Params: { worldId: string; actorId: string }; Querystring: { roleId?: string; sceneSetup?: string; synthesize?: string } }>("/:worldId/actors/:actorId/export-prompt", async (request, reply) => {
     const { worldId, actorId } = request.params;
     const role = await getEffectiveRole(request.user!.userId, request.user!.role, worldId);
     if (!role) {
@@ -181,8 +182,17 @@ export async function actorRoutes(fastify: FastifyInstance) {
       loadedRole = await roleService.getById(worldId, request.query.roleId) ?? undefined;
     }
 
+    // Use new synthesis pipeline if ?synthesize=true, else legacy
+    if (request.query.synthesize === "true") {
+      const world = await worldService.getById(worldId) ?? undefined;
+      const { systemPrompt, cached } = await getOrSynthesizePrompt(
+        actor, loadedRole, request.query.sceneSetup || undefined, world
+      );
+      return { actorName: actor.name, roleName: loadedRole?.name, prompt: systemPrompt, synthesized: true, cached };
+    }
+
     const prompt = compileSystemPrompt(actor, loadedRole, request.query.sceneSetup || undefined);
-    return { actorName: actor.name, roleName: loadedRole?.name, prompt };
+    return { actorName: actor.name, roleName: loadedRole?.name, prompt, synthesized: false };
   });
 
   // Delete actor
