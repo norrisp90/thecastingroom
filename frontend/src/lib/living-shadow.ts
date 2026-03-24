@@ -82,12 +82,12 @@ interface Particle {
 
 function spawnParticle(w: number, h: number): Particle {
   const cx = w / 2;
-  const cy = h * 0.35;
+  const cy = h * 0.38;
   const angle = Math.random() * Math.PI * 2;
-  const dist = 60 + Math.random() * 200;
+  const dist = 80 + Math.random() * 250;
   return {
     x: cx + Math.cos(angle) * dist,
-    y: cy + Math.sin(angle) * dist,
+    y: cy + Math.sin(angle) * dist * 1.3,
     vx: (Math.random() - 0.5) * 0.3,
     vy: -0.2 - Math.random() * 0.5,
     life: 0,
@@ -97,49 +97,227 @@ function spawnParticle(w: number, h: number): Particle {
   };
 }
 
-// --- Silhouette path (bezier curves) ---
+// --- Captain silhouette path (bezier curves) ---
+// Full-body Captain Magee: tricorn hat, greatcoat billowing right, boots on waves
 
-function drawSilhouettePath(ctx: CanvasRenderingContext2D, cx: number, cy: number, scale: number) {
+function drawCaptainPath(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, scale: number,
+  coatFlutter: number,
+) {
+  // cy is the vertical anchor — roughly chest height.
+  // All Y offsets are relative to cy.
+  const s = scale;
+
+  // --- Key Y anchors ---
+  const hatTop    = cy - 195 * s;
+  const hatBrim   = cy - 150 * s;
+  const headCy    = cy - 130 * s;   // centre of head ellipse
+  const chinY     = cy - 105 * s;
+  const shoulderY = cy - 70 * s;
+  const waistY    = cy + 30 * s;
+  const coatHemY  = cy + 160 * s;
+  const kneeY     = cy + 190 * s;
+  const bootTopY  = cy + 210 * s;
+  const feetY     = cy + 270 * s;
+
+  // Coat flutter offset (positive = billows right)
+  const cf = coatFlutter * s;
+
   ctx.beginPath();
-  // Head (ellipse)
-  const headRx = 38 * scale;
-  const headRy = 45 * scale;
-  const headCy = cy - 120 * scale;
-  ctx.ellipse(cx, headCy, headRx, headRy, 0, 0, Math.PI * 2);
 
-  // Neck + shoulders + torso
-  ctx.moveTo(cx - 18 * scale, headCy + headRy - 5 * scale);
-  // Left neck to shoulder
+  // ---- Tricorn hat ----
+  // Start at left brim tip
+  ctx.moveTo(cx - 58 * s, hatBrim);
+  // Left brim up to front peak
   ctx.bezierCurveTo(
-    cx - 20 * scale, headCy + headRy + 15 * scale,
-    cx - 70 * scale, headCy + headRy + 25 * scale,
-    cx - 130 * scale, headCy + headRy + 45 * scale
+    cx - 50 * s, hatBrim - 15 * s,
+    cx - 25 * s, hatTop + 8 * s,
+    cx, hatTop
   );
-  // Left shoulder down to torso
+  // Front peak to right brim tip
   ctx.bezierCurveTo(
-    cx - 145 * scale, headCy + headRy + 55 * scale,
-    cx - 120 * scale, headCy + headRy + 130 * scale,
-    cx - 90 * scale, headCy + headRy + 250 * scale
+    cx + 25 * s, hatTop + 8 * s,
+    cx + 50 * s, hatBrim - 15 * s,
+    cx + 62 * s, hatBrim
   );
-  // Bottom (fade into mist)
+  // Right brim underside (curves back inward to head)
   ctx.bezierCurveTo(
-    cx - 60 * scale, headCy + headRy + 320 * scale,
-    cx + 60 * scale, headCy + headRy + 320 * scale,
-    cx + 90 * scale, headCy + headRy + 250 * scale
+    cx + 48 * s, hatBrim + 8 * s,
+    cx + 32 * s, hatBrim + 5 * s,
+    cx + 28 * s, hatBrim + 4 * s
   );
-  // Right torso up to shoulder
+
+  // ---- Head (right side down to chin) ----
   ctx.bezierCurveTo(
-    cx + 120 * scale, headCy + headRy + 130 * scale,
-    cx + 145 * scale, headCy + headRy + 55 * scale,
-    cx + 130 * scale, headCy + headRy + 45 * scale
+    cx + 30 * s, headCy - 15 * s,
+    cx + 30 * s, headCy + 15 * s,
+    cx + 16 * s, chinY
   );
-  // Right shoulder to neck
+
+  // ---- Right neck to shoulder ----
   ctx.bezierCurveTo(
-    cx + 70 * scale, headCy + headRy + 25 * scale,
-    cx + 20 * scale, headCy + headRy + 15 * scale,
-    cx + 18 * scale, headCy + headRy - 5 * scale
+    cx + 18 * s, chinY + 10 * s,
+    cx + 55 * s, shoulderY - 10 * s,
+    cx + 80 * s, shoulderY
   );
+
+  // ---- Right arm / coat right side ----
+  // Shoulder down to waist (arm at side under coat)
+  ctx.bezierCurveTo(
+    cx + 90 * s, shoulderY + 20 * s,
+    cx + 75 * s, waistY - 30 * s,
+    cx + 70 * s, waistY
+  );
+
+  // ---- Coat right — billowing flap (wind-blown) ----
+  // Waist out to coat flare
+  ctx.bezierCurveTo(
+    cx + 80 * s + cf * 0.5, waistY + 40 * s,
+    cx + 110 * s + cf, coatHemY - 60 * s,
+    cx + 130 * s + cf * 1.2, coatHemY - 20 * s
+  );
+  // Coat tail — the dramatic billowing trailing edge
+  ctx.bezierCurveTo(
+    cx + 150 * s + cf * 1.5, coatHemY + 10 * s,
+    cx + 160 * s + cf * 1.8, coatHemY + 40 * s,
+    cx + 140 * s + cf * 1.4, coatHemY + 60 * s
+  );
+  // Coat tail curls back inward
+  ctx.bezierCurveTo(
+    cx + 120 * s + cf, coatHemY + 50 * s,
+    cx + 80 * s + cf * 0.3, coatHemY + 20 * s,
+    cx + 50 * s, coatHemY
+  );
+
+  // ---- Right leg (below coat hem) ----
+  ctx.bezierCurveTo(
+    cx + 45 * s, kneeY,
+    cx + 40 * s, bootTopY,
+    cx + 38 * s, feetY
+  );
+
+  // ---- Right boot ----
+  ctx.bezierCurveTo(
+    cx + 40 * s, feetY + 8 * s,
+    cx + 25 * s, feetY + 12 * s,
+    cx + 12 * s, feetY + 10 * s
+  );
+
+  // ---- Gap between boots ----
+  ctx.lineTo(cx - 12 * s, feetY + 10 * s);
+
+  // ---- Left boot ----
+  ctx.bezierCurveTo(
+    cx - 25 * s, feetY + 12 * s,
+    cx - 40 * s, feetY + 8 * s,
+    cx - 38 * s, feetY
+  );
+
+  // ---- Left leg up to coat hem ----
+  ctx.bezierCurveTo(
+    cx - 40 * s, bootTopY,
+    cx - 42 * s, kneeY,
+    cx - 45 * s, coatHemY
+  );
+
+  // ---- Coat left side (straighter, less billowing) ----
+  ctx.bezierCurveTo(
+    cx - 55 * s, coatHemY - 30 * s,
+    cx - 65 * s, waistY + 40 * s,
+    cx - 65 * s, waistY
+  );
+
+  // ---- Left arm / torso left side ----
+  ctx.bezierCurveTo(
+    cx - 70 * s, waistY - 30 * s,
+    cx - 85 * s, shoulderY + 20 * s,
+    cx - 78 * s, shoulderY
+  );
+
+  // ---- Left shoulder to neck ----
+  ctx.bezierCurveTo(
+    cx - 55 * s, shoulderY - 10 * s,
+    cx - 18 * s, chinY + 10 * s,
+    cx - 16 * s, chinY
+  );
+
+  // ---- Head left side up to hat ----
+  ctx.bezierCurveTo(
+    cx - 30 * s, headCy + 15 * s,
+    cx - 30 * s, headCy - 15 * s,
+    cx - 28 * s, hatBrim + 4 * s
+  );
+
+  // ---- Left brim underside back to start ----
+  ctx.bezierCurveTo(
+    cx - 32 * s, hatBrim + 5 * s,
+    cx - 48 * s, hatBrim + 8 * s,
+    cx - 58 * s, hatBrim
+  );
+
   ctx.closePath();
+}
+
+// --- Ocean wave path beneath the captain's feet ---
+
+function drawWavePath(
+  ctx: CanvasRenderingContext2D,
+  cx: number, waveTopY: number, scale: number,
+  time: number,
+) {
+  const s = scale;
+  // Animated wave roll offsets
+  const roll1 = Math.sin(time * 0.8) * 8 * s;
+  const roll2 = Math.sin(time * 0.6 + 1.5) * 6 * s;
+  const roll3 = Math.sin(time * 1.0 + 3.0) * 5 * s;
+
+  ctx.beginPath();
+
+  // --- Main wave (large curl under the captain) ---
+  const wy = waveTopY;
+  ctx.moveTo(cx - 160 * s, wy + 20 * s + roll2);
+  // Rising swell from left
+  ctx.bezierCurveTo(
+    cx - 120 * s, wy + 5 * s + roll1,
+    cx - 70 * s,  wy - 15 * s + roll1,
+    cx - 20 * s,  wy - 20 * s + roll1
+  );
+  // Wave crest (the curl)
+  ctx.bezierCurveTo(
+    cx + 15 * s, wy - 22 * s + roll1,
+    cx + 50 * s, wy - 18 * s + roll1,
+    cx + 80 * s, wy - 5 * s + roll2
+  );
+  // Descending right side
+  ctx.bezierCurveTo(
+    cx + 110 * s, wy + 10 * s + roll2,
+    cx + 140 * s, wy + 25 * s + roll2,
+    cx + 170 * s, wy + 30 * s + roll2
+  );
+
+  // --- Second wave (smaller, below and offset) ---
+  const wy2 = wy + 40 * s;
+  ctx.moveTo(cx - 140 * s, wy2 + 15 * s + roll3);
+  ctx.bezierCurveTo(
+    cx - 100 * s, wy2 + 5 * s + roll2,
+    cx - 50 * s,  wy2 - 8 * s + roll2,
+    cx,           wy2 - 10 * s + roll2
+  );
+  ctx.bezierCurveTo(
+    cx + 40 * s, wy2 - 8 * s + roll3,
+    cx + 90 * s, wy2 + 5 * s + roll3,
+    cx + 150 * s, wy2 + 18 * s + roll3
+  );
+
+  // --- Third wave (smallest, suggestion only) ---
+  const wy3 = wy + 70 * s;
+  ctx.moveTo(cx - 110 * s, wy3 + 10 * s + roll1);
+  ctx.bezierCurveTo(
+    cx - 60 * s, wy3 + roll3,
+    cx + 20 * s, wy3 - 5 * s + roll3,
+    cx + 120 * s, wy3 + 12 * s + roll1
+  );
 }
 
 // --- Main renderer class ---
@@ -332,42 +510,65 @@ export class LivingShadowRenderer {
 
   private renderSilhouette(ctx: CanvasRenderingContext2D, w: number, h: number, opacity: number) {
     const cx = w / 2;
-    const cy = h * 0.45;
-    const scale = Math.min(w / 500, h / 700) * 0.9;
+    const cy = h * 0.40;  // shifted up for full-body figure
+    const scale = Math.min(w / 600, h / 800) * 0.85;
 
     // Body sway from amplitude
     const sway = Math.sin(this.time * 1.5) * this.amplitude * 3;
 
+    // Coat flutter: base wind + amplitude enhancement
+    const baseFlutter = Math.sin(this.time * 1.2) * 8 + Math.sin(this.time * 2.3) * 3;
+    const ampFlutter = this.amplitude * 15;
+    const coatFlutter = baseFlutter + ampFlutter;
+
     ctx.save();
     ctx.translate(sway, 0);
 
-    // Head tilt
-    const tilt = Math.sin(this.time * 0.8) * this.amplitude * 0.03;
-    ctx.translate(cx, cy - 120 * scale);
+    // Subtle head tilt (rotate around head centre)
+    const headCy = cy - 130 * scale;
+    const tilt = Math.sin(this.time * 0.8) * this.amplitude * 0.025;
+    ctx.translate(cx, headCy);
     ctx.rotate(tilt);
-    ctx.translate(-cx, -(cy - 120 * scale));
+    ctx.translate(-cx, -headCy);
 
     // Materialisation blur
     const blurAmount = (1 - this.materialiseProgress) * 15;
     ctx.filter = blurAmount > 0.5 ? `blur(${blurAmount}px)` : "none";
     ctx.globalAlpha = opacity;
 
-    // Silhouette fill — dark gradient
-    drawSilhouettePath(ctx, cx, cy, scale);
-    const grad = ctx.createLinearGradient(cx, cy - 180 * scale, cx, cy + 200 * scale);
+    // --- Captain silhouette fill — dark gradient ---
+    drawCaptainPath(ctx, cx, cy, scale, coatFlutter);
+    const feetY = cy + 270 * scale;
+    const grad = ctx.createLinearGradient(cx, cy - 200 * scale, cx, feetY + 80 * scale);
     grad.addColorStop(0, "#1a1a2e");
-    grad.addColorStop(0.5, "#10101c");
+    grad.addColorStop(0.6, "#10101c");
+    grad.addColorStop(0.85, "#0c0c16");
     grad.addColorStop(1, "rgba(10,10,20,0)");
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // Mouth (amplitude-driven arc)
+    // --- Ocean waves beneath feet ---
+    const waveTopY = feetY + 10 * scale;
+    drawWavePath(ctx, cx, waveTopY, scale, this.time);
+    ctx.lineWidth = 6 * scale;
+    ctx.strokeStyle = "#12121e";
+    ctx.stroke();
+    // Fill wave area with semi-transparent dark
+    drawWavePath(ctx, cx, waveTopY, scale, this.time);
+    ctx.lineWidth = 4 * scale;
+    const waveGrad = ctx.createLinearGradient(cx, waveTopY - 25 * scale, cx, waveTopY + 80 * scale);
+    waveGrad.addColorStop(0, "#14142a");
+    waveGrad.addColorStop(1, "rgba(10,10,20,0)");
+    ctx.strokeStyle = waveGrad;
+    ctx.stroke();
+
+    // --- Mouth (amplitude-driven arc) ---
     if (this.state === "SPEAKING" || this.state === "LISTENING" || this.state === "PRESENT") {
-      const headCy = cy - 120 * scale;
-      const mouthOpen = this.state === "SPEAKING" ? this.amplitude * 8 * scale : 1 * scale;
-      const mouthWidth = 12 * scale + (this.state === "SPEAKING" ? this.amplitude * 6 * scale : 0);
+      const mouthY = cy - 115 * scale;  // below head centre, above chin
+      const mouthOpen = this.state === "SPEAKING" ? this.amplitude * 7 * scale : 0.8 * scale;
+      const mouthWidth = 10 * scale + (this.state === "SPEAKING" ? this.amplitude * 5 * scale : 0);
       ctx.beginPath();
-      ctx.ellipse(cx, headCy + 18 * scale, mouthWidth, mouthOpen, 0, 0, Math.PI);
+      ctx.ellipse(cx, mouthY, mouthWidth, mouthOpen, 0, 0, Math.PI);
       ctx.fillStyle = `rgba(20, 15, 25, ${0.6 + this.amplitude * 0.3})`;
       ctx.fill();
     }
@@ -377,19 +578,33 @@ export class LivingShadowRenderer {
 
   private renderEdgeGlow(ctx: CanvasRenderingContext2D, w: number, h: number, opacity: number) {
     const cx = w / 2;
-    const cy = h * 0.45;
-    const scale = Math.min(w / 500, h / 700) * 0.9;
+    const cy = h * 0.40;
+    const scale = Math.min(w / 600, h / 800) * 0.85;
     const sway = Math.sin(this.time * 1.5) * this.amplitude * 3;
+
+    const baseFlutter = Math.sin(this.time * 1.2) * 8 + Math.sin(this.time * 2.3) * 3;
+    const ampFlutter = this.amplitude * 15;
+    const coatFlutter = baseFlutter + ampFlutter;
 
     ctx.save();
     ctx.translate(sway, 0);
     ctx.globalAlpha = opacity * (0.5 + this.amplitude * 0.35);
     ctx.filter = "blur(6px)";
 
-    drawSilhouettePath(ctx, cx, cy, scale);
     const pulse = 0.5 + Math.sin(this.time * 2) * 0.15 + this.amplitude * 0.35;
     ctx.strokeStyle = `rgba(130, 170, 220, ${pulse})`;
     ctx.lineWidth = 4;
+
+    // Glow around captain silhouette
+    drawCaptainPath(ctx, cx, cy, scale, coatFlutter);
+    ctx.stroke();
+
+    // Glow along wave crests
+    const feetY = cy + 270 * scale;
+    const waveTopY = feetY + 10 * scale;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = opacity * (0.3 + this.amplitude * 0.2);
+    drawWavePath(ctx, cx, waveTopY, scale, this.time);
     ctx.stroke();
 
     ctx.restore();
