@@ -40,3 +40,6 @@ docker-compose.override.yml
 *.ps1
 ca-current.json
 status.txt
+
+# Research docs (not for source control)
+docs/
